@@ -2176,7 +2176,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 13;
+        public const int AppVersion = 14;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2655,7 +2655,7 @@ Puerto=8765
         Font killerFont;
         Font KillerFont()
         {
-            int sz = Math.Max(8, cfg.GetInt("TamanoKiller", 16));
+            int sz = Math.Max(7, cfg.GetInt("TamanoKiller", 10));
             if (killerFont == null || (int)killerFont.Size != sz) killerFont = new Font("Segoe UI", sz, FontStyle.Bold);
             return killerFont;
         }
@@ -2667,7 +2667,7 @@ Puerto=8765
             show.Click += (s, e) => { SetCfg("MostrarKiller", KillerOn ? "no" : "si"); Relayout(); };
             m.DropDownItems.Add(show);
             m.DropDownItems.Add(new ToolStripSeparator());
-            foreach (var sz in new[] { Tuple.Create("Chico", 12), Tuple.Create("Normal", 16), Tuple.Create("Grande", 22), Tuple.Create("Muy grande", 30), Tuple.Create("Enorme", 40) })
+            foreach (var sz in new[] { Tuple.Create("Mínimo", 7), Tuple.Create("Chico", 8), Tuple.Create("Normal", 10), Tuple.Create("Grande", 12), Tuple.Create("Muy grande", 15) })
             {
                 var it = new ToolStripMenuItem(sz.Item1) { Tag = sz.Item2 };
                 it.Click += (s, e) => { SetCfg("TamanoKiller", ((int)((ToolStripMenuItem)s).Tag).ToString()); if (!KillerOn) SetCfg("MostrarKiller", "si"); Relayout(); };
@@ -2676,7 +2676,7 @@ Puerto=8765
             m.DropDownOpening += (s, e) =>
             {
                 show.Checked = KillerOn;
-                int cur = cfg.GetInt("TamanoKiller", 16);
+                int cur = cfg.GetInt("TamanoKiller", 10);
                 foreach (var o in m.DropDownItems.OfType<ToolStripMenuItem>()) if (o.Tag is int) o.Checked = (int)o.Tag == cur;
             };
             return m;
@@ -3596,7 +3596,7 @@ Puerto=8765
 
         // ---- layout compacto: perks en rombo (como el HUD de superviviente), addons al costado
         class Item { public Rectangle R; public Entry E; public bool Slot; public int Num; }
-        class TextItem { public string T; public Font F; public Color C; public Point P; public int W; public bool Block; }
+        class TextItem { public string T; public Font F; public Color C; public Point P; public int W; public bool Block, Center; }
         List<Item> items = new List<Item>();
         List<TextItem> texts = new List<TextItem>();
         bool showNames;
@@ -3628,7 +3628,7 @@ Puerto=8765
             {
                 var kf = KillerFont();
                 var ks = M(st.Killer.Name, kf);
-                ktext = new TextItem { T = st.Killer.Name, F = kf, C = Color.FromArgb(235, 95, 95), P = new Point(pad, y), W = ks.Width };
+                ktext = new TextItem { T = st.Killer.Name, F = kf, C = Color.FromArgb(235, 95, 95), P = new Point(pad, y), W = ks.Width, Center = true };
                 y += ks.Height + 8;
             }
             int top = y, blockX = 0; // blockX: corrimiento del bloque si algo de arriba/abajo es mas ancho
@@ -3830,7 +3830,7 @@ Puerto=8765
             }
             var flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
             foreach (var t in texts)
-                TextRenderer.DrawText(g, t.T, t.F, new Rectangle(t.P.X, t.P.Y, t.W + 2, t.F.Height + 2), t.C, flags);
+                TextRenderer.DrawText(g, t.T, t.F, new Rectangle(t.P.X, t.P.Y, t.W + 2, t.F.Height + 2), t.C, t.Center ? flags | TextFormatFlags.HorizontalCenter : flags);
         }
 
         void DrawIcon(Graphics g, Entry e, Rectangle r)
