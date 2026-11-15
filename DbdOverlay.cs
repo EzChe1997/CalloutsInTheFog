@@ -1973,7 +1973,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 4;
+        public const int AppVersion = 5;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2934,6 +2934,24 @@ Puerto=8765
             handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)") { Checked = HandsOn };
             handsItem.Click += (s, e) => SetHands(!HandsOn);
             menu.Items.Add(handsItem);
+            // tamaño de los íconos (los addons y la ofrenda se escalan junto con los perks)
+            var sizeMenu = new ToolStripMenuItem("Tamaño de los íconos");
+            var sizes = new[] { Tuple.Create("Chico", 40), Tuple.Create("Normal", 48), Tuple.Create("Grande", 60), Tuple.Create("Muy grande", 72), Tuple.Create("Enorme", 88), Tuple.Create("Gigante", 104) };
+            foreach (var sz in sizes)
+            {
+                var it = new ToolStripMenuItem(sz.Item1 + " (" + sz.Item2 + " px)") { Tag = sz.Item2 };
+                it.Click += (s, e) =>
+                {
+                    int px = (int)((ToolStripMenuItem)s).Tag;
+                    SetCfg("TamanoPerk", px.ToString());
+                    foreach (ToolStripMenuItem o in sizeMenu.DropDownItems) o.Checked = (int)o.Tag == px;
+                    Relayout();
+                    Feedback("tamaño de íconos: " + ((ToolStripMenuItem)s).Text, Color.Silver, 3000);
+                };
+                sizeMenu.DropDownItems.Add(it);
+            }
+            sizeMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in sizeMenu.DropDownItems) o.Checked = (int)o.Tag == PerkSize; };
+            menu.Items.Add(sizeMenu);
             menu.Items.Add("Instalar voz (Whisper)…", null, (s, e) => InstallVoice());
             menu.Items.Add("Abrir configuración", null, (s, e) => { try { Process.Start("notepad.exe", "\"" + Path.Combine(dir, "config.ini") + "\""); } catch { } });
             menu.Items.Add("Editar apodos", null, (s, e) => { try { st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(dir, "apodos.txt") + "\""); } catch { } });

@@ -1,8 +1,8 @@
 {
-    "version":  4,
-    "notes":  "Hablar sin tecla (prueba): anota frases tipo tiene X sin apretar V",
-    "date":  "2026-11-15 18:05",
+    "version":  5,
+    "notes":  "Tamano de los iconos configurable desde el menu",
+    "date":  "2026-11-15 18:07",
     "files":  {
-                  "DbdOverlay.exe":  "889b86e0314426dccd2323bd149c6c136503273df1ab19784b2a8a1fb8e4ed51"
+                  "DbdOverlay.exe":  "a37ad7f900370512046c5fa4c81585eb89d8b1601ffab75700d9e6aec72c0808"
               }
 }
