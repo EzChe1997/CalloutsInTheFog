@@ -171,7 +171,7 @@ Puerto=8765
         // ---- palabras "de contenido" para comparar lo que hace un addon con su descripcion
         static readonly HashSet<string> Stop = new HashSet<string>(
             ("de la el los las un una unos unas que y e o u a al del en con por para se su sus le les lo es son sea da dan " +
-             "hace hacen tiene tienen cuando mientras durante segundo segundos como mas muy este esta esto estos estas tras sin " +
+             "hace hacen tiene tienen cuando mientras durante segundo segundos como muy este esta esto estos estas tras sin ese eso " +
              "no si ya cada todo toda todos todas otro otra killer asesino addon addons add on accesorio the of and to it").Split(' '));
 
         static readonly string[,] Syn = {
@@ -186,7 +186,7 @@ Puerto=8765
             {"blind","ceguer"},{"ceguer","ceguer"},{"cieg","ceguer"},{"ciega","ceguer"},
             {"expos","expuest"},{"expuest","expuest"},
             {"mangl","lacer"},{"lacera","lacer"},
-            {"hemorr","hemorr"},{"sangr","hemorr"},{"bleed","hemorr"},
+            {"hemorr","hemorr"},{"sangr","hemorr"},{"desangr","hemorr"},{"bleed","hemorr"},
             {"exhaust","agot"},{"agot","agot"},
             {"hinder","obstac"},{"obstac","obstac"},
             {"oblivi","ajeno"},{"ajen","ajeno"},
@@ -197,14 +197,35 @@ Puerto=8765
             {"lanz","lanz"},{"tira","lanz"},{"throw","lanz"},
             {"tramp","tramp"},{"trap","tramp"},
             {"aura","aura"},{"terror","terror"},
-            {"tiemp","tiemp"},{"tard","tiemp"}
+            {"tiemp","tiemp"},{"tard","tiemp"},{"cuest","tiemp"},{"dific","tiemp"},
+            // jerga de jugador -> palabras del juego (en espanol de Espana y en ingles)
+            {"proyec","parpad"},{"teletrans","parpad"},
+            {"invis","ocult"},{"ocult","ocult"},{"cloak","ocult"},{"camufl","ocult"},{"uncloak","ocult"},
+            {"campan","campa"},{"bell","campa"},
+            {"silen","silen"},{"mute","silen"},{"muffl","silen"},{"callad","silen"},{"amortig","silen"},
+            {"ruid","sonid"},{"sonid","sonid"},{"sound","sonid"},
+            {"escap","huir"},{"huir","huir"},{"huye","huir"},{"zaf","huir"},
+            {"increas","aument"},{"decreas","reduc"},{"faster","veloc"},{"slower","lent"},{"longer","aument"},
+            {"durac","durac"},{"duration","durac"},{"dura","durac"},
+            {"maxim","maxim"},{"cantid","maxim"},{"numer","maxim"},{"carried","maxim"},
+            {"wallhack","aura"},{"cura","curar"},{"heal","curar"},
+            {"motosierr","motos"},{"chainsaw","motos"},{"sierra","motos"},
+            {"generad","gener"},{"gene","gener"},{"gens","gener"}
         };
+
+        // palabras exactas (las cortas no se pueden comparar por el principio: "mas" no es "mascara")
+        static readonly Dictionary<string, string> SynExact = new Dictionary<string, string> {
+            { "mas", "aument" }, { "more", "aument" }, { "gen", "gener" }, { "less", "reduc" }, { "fewer", "reduc" },
+            { "cargas", "maxim" }, { "token", "maxim" }, { "tokens", "maxim" } };
 
         public static List<string> Tokens(string text)
         {
             var r = new List<string>();
-            foreach (var w in Norm(text).Split(' '))
+            string all = Norm(text);
+            foreach (var w in all.Split(' '))
             {
+                string ex;
+                if (SynExact.TryGetValue(w, out ex)) { r.Add(ex); continue; }
                 if (w.Length < 2 || Stop.Contains(w)) continue;
                 string s = null;
                 for (int i = 0; i < Syn.GetLength(0); i++)
@@ -215,6 +236,10 @@ Puerto=8765
             }
             // "reduce el tiempo de X" = "X mas rapido"
             if (r.Contains("reduc") && r.Contains("tiemp")) r.Add("veloc");
+            // "que no suene", "que no se escuche", "no hace ruido" = silencio
+            if (Regex.IsMatch(all, @"\bno (?:se )?(?:suen|escuch|oy|oig|hac\w* ruido)")) r.Add("silen");
+            // "mas hachas", "mas trampas", "mas blinks" = cuantas puede tener
+            if (Regex.IsMatch(all, @"\bmas (?:hachas|destrales|trampas|blinks|cuchillos|cargas)\b")) r.Add("maxim");
             return r;
         }
 
@@ -480,6 +505,14 @@ Puerto=8765
             return s;
         }
 
+        // solo lo que hace (sin el texto de ambientacion del principio, que no dice nada del efecto)
+        static string Effect(string html)
+        {
+            var parts = Regex.Split(html ?? "", @"(?:<br\s*/?>\s*){2,}", RegexOptions.IgnoreCase).Where(p => p.Trim().Length > 0).ToList();
+            if (parts.Count >= 2 && !Regex.IsMatch(parts[0], @"\d|<b>|\{")) parts.RemoveAt(0);
+            return StripHtml(string.Join(" ", parts));
+        }
+
         static Dictionary<string, object> Dict(Dictionary<string, object> d, string k)
         {
             object o; return d != null && d.TryGetValue(k, out o) ? o as Dictionary<string, object> : null;
@@ -564,14 +597,12 @@ Puerto=8765
                     var de = (Dictionary<string, object>)eso;
                     string nameEs = WebUtility.HtmlDecode(S(de, "name"));
                     e.AddKey(nameEs);
-                    foreach (var t in Txt.Tokens(nameEs + " " + StripHtml(S(de, "description")))) e.Desc.Add(t);
+                    foreach (var t in Txt.Tokens(nameEs + " " + Effect(S(de, "description")))) e.Desc.Add(t);
                     e.NameEs = nameEs; e.Info = NiceDesc(S(de, "description"), null);
                 }
-                else
-                {
-                    foreach (var t in Txt.Tokens(StripHtml(S(d, "description")))) e.Desc.Add(t);
-                    e.Info = NiceDesc(S(d, "description"), null);
-                }
+                else e.Info = NiceDesc(S(d, "description"), null);
+                // tambien la descripcion en ingles: la jerga de los jugadores sale de ahi ("blink", "cloak", "bell")
+                foreach (var t in Txt.Tokens(name + " " + Effect(S(d, "description")))) e.Desc.Add(t);
                 e.InfoEn = NiceDesc(S(d, "description"), null, false);
                 c.Addons.Add(e);
             }
@@ -642,6 +673,9 @@ Puerto=8765
 
         // sospechas: "creo que tiene X" (se ven semitransparentes con "?"), en orden de cuando se dijeron
         public List<Entry> Doubt = new List<Entry>();
+        // addon descripto de forma vaga: candidatos para elegir por numero (el primero queda anotado como sospecha)
+        public List<Entry> Pick; public Entry PickEntry; public int PickUntil;
+        static readonly Regex PickRx = new Regex(@"^(?:(?:es|era|seria)\s+)?(?:(?:el|la)\s+)?(?:numero\s+|opcion\s+)?(uno|1|primero|primer|primera|dos|2|segundo|segunda|tres|3|tercero|tercer|tercera|ninguno|ninguna|ningun)\b(?:\s+(?:es|era))?$");
         public bool IsDoubt(Entry e) { return e != null && Doubt.Contains(e); }
 
         // ofrenda que quemo el killer (una sola)
@@ -1009,18 +1043,21 @@ Puerto=8765
             var w = new Dictionary<string, double>();
             foreach (var x in u) { int df = pool.Count(e => e.Desc.Contains(x)); w[x] = df == 0 ? 1.0 : Math.Log((D + 1.0) / (df + 0.5)); }
             // M = peso de las palabras que coinciden; las que no coinciden restan como mucho 1 cada una
+            // (las descripciones vagas dejan palabras sin coincidir: restan la mitad)
             var scored = pool.Select(e =>
             {
                 double M = u.Where(x => e.Desc.Contains(x)).Sum(x => w[x]);
                 double miss = u.Where(x => !e.Desc.Contains(x)).Sum(x => Math.Min(w[x], 1.0));
-                return new { E = e, M = M, S = M + miss > 0 ? M / (M + miss) : 0 };
-            }).OrderByDescending(x => x.S).ThenByDescending(x => x.M).ToList();
-            T("  descripcion -> mejores: " + string.Join(", ", scored.Take(4).Select(x => x.E.Name + " " + F2(x.S) + "/" + F2(x.M))) + " (minimo 0.60 y peso 0.70)");
+                return new { E = e, M = M, S = M + miss > 0 ? M / (M + 0.5 * miss) : 0 };
+            }).OrderByDescending(x => x.M * x.S).ThenByDescending(x => x.M).ToList();
+            T("  descripcion -> mejores: " + string.Join(", ", scored.Take(4).Select(x => x.E.Name + " " + F2(x.S) + "/" + F2(x.M))));
             var best = scored[0];
-            if (best.S < 0.6 || best.M < 0.7) return null;
-            var close = scored.Where(x => x.S >= best.S * 0.9).Select(x => x.E).ToList();
-            if (close.Count == 1) return best.E;
-            ties = close;
+            if (best.M <= 0) return null;
+            var second = scored.Count > 1 ? scored[1] : null;
+            // seguro: coincide bien y le saca ventaja al segundo
+            if (best.S >= 0.6 && best.M >= 0.7 && (second == null || second.M * second.S < best.M * best.S * 0.7)) return best.E;
+            // si no: los 3 mejores para elegir mirando los iconos
+            ties = scored.Where(x => x.M > 0 && x.M * x.S >= best.M * best.S * 0.35).Take(3).Select(x => x.E).ToList();
             return null;
         }
 
@@ -1106,6 +1143,26 @@ Puerto=8765
             t = Regex.Replace(t, @"^(?:(?:el|al)\s+)?(?:al|el)?(?:k|qu)i(?:ll?|r)er(?:e?s|esk|\s+es)\b(?:\s+(?:k|qu)i(?:ll?|r)er(?:e?s|esk|\s+es)?\b)*", "el killer es");
             t = Regex.Replace(t, @"^el que eres?\b", "el killer es");
             if (t.Length == 0) return "no entendí";
+
+            // elegir entre los addons candidatos: "el dos", "el primero", "ninguno"
+            if (Pick != null)
+            {
+                var pm = PickRx.Match(t);
+                if (Environment.TickCount - PickUntil > 0 || !Addons.Contains(PickEntry)) Pick = null;
+                else if (pm.Success)
+                {
+                    string w = pm.Groups[1].Value;
+                    var cands = Pick; var old = PickEntry;
+                    Pick = null;
+                    if (w.StartsWith("ningun")) { RemoveEntry(old); return "- addon " + old.Name + " (ninguno de esos: describilo de otra forma)"; }
+                    int idx = w == "uno" || w == "1" || w.StartsWith("primer") ? 0 : w == "dos" || w == "2" || w.StartsWith("segund") ? 1 : 2;
+                    if (idx >= cands.Count) return "solo había " + cands.Count + " opciones";
+                    var ch = cands[idx];
+                    Addons[Addons.IndexOf(old)] = ch;
+                    Doubt.Remove(old);
+                    return "addon: " + ch.Name + " ✓";
+                }
+            }
 
             // "si" despues de "no entendí (¿X?)": anota X y aprende como lo dijo
             var guess = lastGuess; var fail = lastFail;
@@ -1332,8 +1389,17 @@ Puerto=8765
             {
                 List<Entry> ties;
                 e = MatchDesc(text, pool, out ties);
-                if (e == null && ties.Count > 0)
-                    extra = " (puede ser " + string.Join(" o ", ties.Take(3).Select(x => x.Name)) + ")";
+                ties = ties.Where(x => !Addons.Contains(x)).ToList();
+                if (e == null && ties.Count == 1) { e = ties[0]; doubtMode = true; }
+                else if (e == null && ties.Count > 1)
+                {
+                    // dudoso: se anota el mas probable como sospecha y se ofrecen los otros para elegir ("el dos")
+                    e = ties[0];
+                    Pick = ties; PickEntry = e; PickUntil = Environment.TickCount + 30000;
+                    Addons.Add(e);
+                    if (!Doubt.Contains(e)) Doubt.Add(e);
+                    return "+ addon: " + e.Name + " (?) · ¿cuál es? " + string.Join(" · ", ties.Select((x, i) => (i + 1) + " " + x.Name)) + " (decí \"el dos\"…)";
+                }
                 else if (e == null) extra = " (no lo reconocí entre los addons de " + Killer.Name + ")";
             }
             else if (e == null) extra = " (decí el killer para reconocerlo)";
@@ -2092,7 +2158,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 11;
+        public const int AppVersion = 12;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2214,7 +2280,7 @@ Puerto=8765
             A("Mantené " + KeyName + " y decí:", head, true);
             A("\"tiene Pain Resonance y Deadlock\"   anota perks (máx. 4)", cmd, false);
             A("\"es la Huntress\"   killer (no se muestra, ayuda con los addons)", cmd, false);
-            A("\"addon que ciega\"   addon por lo que hace (máx. 2)", cmd, false);
+            A("\"addon que ciega\"   addon por lo que hace (máx. 2); si duda: \"el dos\" o \"ninguno\"", cmd, false);
             A("\"quitar Deadlock\" · \"quitar addons\"", cmd, false);
             A("\"no, borrá eso\"   deshace lo último; al repetir no elige lo mismo", cmd, false);
             A("\"tiene el perk ...\"   busca solo entre perks", cmd, false);
@@ -2566,6 +2632,38 @@ Puerto=8765
         bool NamesEs { get { return cfg.Get("IdiomaNombres", "en").ToLowerInvariant().StartsWith("es"); } }
         bool DescEs { get { return !cfg.Get("IdiomaDescripciones", "es").ToLowerInvariant().StartsWith("en"); } }
 
+        // ---- nombre del killer arriba: se puede ocultar y cambiar de tamano
+        bool KillerOn { get { return !Regex.IsMatch(cfg.Get("MostrarKiller", "si"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
+        Font killerFont;
+        Font KillerFont()
+        {
+            int sz = Math.Max(8, cfg.GetInt("TamanoKiller", 16));
+            if (killerFont == null || (int)killerFont.Size != sz) killerFont = new Font("Segoe UI", sz, FontStyle.Bold);
+            return killerFont;
+        }
+
+        ToolStripMenuItem KillerMenu()
+        {
+            var m = new ToolStripMenuItem("Nombre del killer");
+            var show = new ToolStripMenuItem("Mostrar arriba");
+            show.Click += (s, e) => { SetCfg("MostrarKiller", KillerOn ? "no" : "si"); Relayout(); };
+            m.DropDownItems.Add(show);
+            m.DropDownItems.Add(new ToolStripSeparator());
+            foreach (var sz in new[] { Tuple.Create("Chico", 12), Tuple.Create("Normal", 16), Tuple.Create("Grande", 22), Tuple.Create("Muy grande", 30), Tuple.Create("Enorme", 40) })
+            {
+                var it = new ToolStripMenuItem(sz.Item1) { Tag = sz.Item2 };
+                it.Click += (s, e) => { SetCfg("TamanoKiller", ((int)((ToolStripMenuItem)s).Tag).ToString()); if (!KillerOn) SetCfg("MostrarKiller", "si"); Relayout(); };
+                m.DropDownItems.Add(it);
+            }
+            m.DropDownOpening += (s, e) =>
+            {
+                show.Checked = KillerOn;
+                int cur = cfg.GetInt("TamanoKiller", 16);
+                foreach (var o in m.DropDownItems.OfType<ToolStripMenuItem>()) if (o.Tag is int) o.Checked = (int)o.Tag == cur;
+            };
+            return m;
+        }
+
         string DName(Entry e)
         {
             if (NamesEs) return string.IsNullOrEmpty(e.NameEs) ? e.Name : e.NameEs;
@@ -2611,6 +2709,8 @@ Puerto=8765
 
         void HoverTick()
         {
+            // los candidatos de addon se van solos a los 30 s (queda anotado el primero como sospecha)
+            if (st.Pick != null && Environment.TickCount - st.PickUntil > 0) { st.Pick = null; Relayout(); }
             Entry over = null; Rectangle rr = Rectangle.Empty;
             var ci = new CURSORINFO { cbSize = Marshal.SizeOf(typeof(CURSORINFO)) };
             // en partida DBD esconde el cursor: ahi no se muestra nada
@@ -3198,6 +3298,7 @@ Puerto=8765
             }
             sizeMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in sizeMenu.DropDownItems) o.Checked = (int)o.Tag == PerkSize; };
             menu.Items.Add(sizeMenu);
+            menu.Items.Add(KillerMenu());
             var langMenu = new ToolStripMenuItem("Idioma");
             langMenu.DropDownItems.Add(LangMenu("Nombres", "IdiomaNombres", "en"));
             langMenu.DropDownItems.Add(LangMenu("Descripciones", "IdiomaDescripciones", "es"));
@@ -3476,7 +3577,7 @@ Puerto=8765
         }
 
         // ---- layout compacto: perks en rombo (como el HUD de superviviente), addons al costado
-        class Item { public Rectangle R; public Entry E; public bool Slot; }
+        class Item { public Rectangle R; public Entry E; public bool Slot; public int Num; }
         class TextItem { public string T; public Font F; public Color C; public Point P; public int W; public bool Block; }
         List<Item> items = new List<Item>();
         List<TextItem> texts = new List<TextItem>();
@@ -3502,6 +3603,17 @@ Puerto=8765
             bool any = st.Perks.Count > 0 || st.Addons.Count > 0 || st.Offering != null; // el killer no se muestra
             int pad = 8, D = PerkSize, o = D / 2 + 2, A = (int)(D * 0.62);
             int blockW = 0, y = pad;
+
+            // nombre del killer arriba de todo (opcional, tamano configurable)
+            TextItem ktext = null;
+            if (st.Killer != null && KillerOn)
+            {
+                var kf = KillerFont();
+                var ks = M(st.Killer.Name, kf);
+                ktext = new TextItem { T = st.Killer.Name, F = kf, C = Color.FromArgb(235, 95, 95), P = new Point(pad, y), W = ks.Width };
+                y += ks.Height + 8;
+            }
+            int top = y, blockX = 0; // blockX: corrimiento del bloque si algo de arriba/abajo es mas ancho
 
             if (any)
             {
@@ -3533,7 +3645,7 @@ Puerto=8765
                 int blockH = Math.Max(clusterW, Math.Max(namesH, addonsH));
 
                 int x = pad;
-                int ny = pad + (blockH - namesH) / 2;
+                int ny = top + (blockH - namesH) / 2;
                 foreach (var nl in nameLines)
                 {
                     texts.Add(new TextItem { T = nl.Item1, F = fSmall, C = nl.Item2, P = new Point(x, ny), W = namesW, Block = true });
@@ -3541,11 +3653,11 @@ Puerto=8765
                 }
                 if (nameLines.Count > 0) x += namesW + 10;
 
-                int ay = pad + (blockH - addonsH) / 2;
+                int ay = top + (blockH - addonsH) / 2;
                 foreach (var a in realAddons) { items.Add(new Item { R = new Rectangle(x, ay, A, A), E = a }); ay += A + 4; }
                 if (realAddons.Count > 0) x += A + 6;
 
-                int ccx = x + clusterW / 2, ccy = pad + blockH / 2;
+                int ccx = x + clusterW / 2, ccy = top + blockH / 2;
                 // la ofrenda va en la esquina libre de arriba a la derecha del rombo (se dibuja antes: si se toca con un perk, el perk queda encima)
                 if (st.Offering != null && st.Offering.Rarity != "nota")
                 {
@@ -3558,15 +3670,45 @@ Puerto=8765
                 for (int i = 0; i < 4; i++)
                     items.Add(new Item { R = new Rectangle(centers[i].X - D / 2, centers[i].Y - D / 2, D, D), E = i < st.Perks.Count ? st.Perks[i] : null, Slot = true });
                 blockW = x + clusterW - pad;
-                y = pad + blockH + 6;
+                y = top + blockH + 6;
             }
+            int blockItems = items.Count, blockTexts = texts.Count;
+
+            // addon dudoso: los candidatos numerados para elegir ("el dos")
+            var pickItems = new List<Item>(); TextItem pickText = null; int rowW = 0;
+            if (st.Pick != null && Environment.TickCount - st.PickUntil < 0)
+            {
+                for (int i = 0; i < st.Pick.Count; i++)
+                    pickItems.Add(new Item { R = new Rectangle(i * (A + 8), y, A, A), E = st.Pick[i], Num = i + 1 });
+                rowW = st.Pick.Count * (A + 8) - 8;
+                string pt = "¿cuál? " + string.Join(" · ", st.Pick.Select((x, i) => (i + 1) + " " + DName(x)));
+                var ps = M(pt, fSmall);
+                int pw = Math.Min(ps.Width, 560);
+                pickText = new TextItem { T = pt, F = fSmall, C = Color.FromArgb(240, 190, 60), P = new Point(0, y + A + 6), W = pw };
+                rowW = Math.Max(rowW, pw);
+                y += A + 6 + ps.Height + 6;
+            }
+
+            // todo alineado a la derecha del bloque mas ancho (killer, rombo, candidatos)
+            int W = Math.Max(blockW, Math.Max(ktext != null ? ktext.W : 0, rowW));
+            blockX = W - blockW;
+            if (blockX > 0)
+            {
+                for (int i = 0; i < blockItems; i++) items[i].R.Offset(blockX, 0);
+                for (int i = 0; i < blockTexts; i++) texts[i].P = new Point(texts[i].P.X + blockX, texts[i].P.Y);
+            }
+            if (ktext != null) { ktext.P = new Point(pad + W - ktext.W, ktext.P.Y); texts.Add(ktext); }
+            int rowIconsW = pickItems.Count > 0 ? pickItems.Count * (A + 8) - 8 : 0;
+            foreach (var pi in pickItems) { pi.R.Offset(pad + W - rowIconsW, 0); items.Add(pi); }
+            if (pickText != null) { pickText.P = new Point(pad + W - pickText.W, pickText.P.Y); texts.Add(pickText); }
+            blockW = W;
 
             var bottom = new List<Tuple<string, Color>>();
             if (talking) bottom.Add(Tuple.Create("● Escuchando…", Color.FromArgb(255, 80, 80)));
             else if (busy) bottom.Add(Tuple.Create("… Procesando", Color.Khaki));
             if (statusLine.Length > 0) bottom.Add(Tuple.Create(statusLine, Color.Orange));
             if (feedback.Length > 0) bottom.Add(Tuple.Create(feedback, feedbackColor));
-            if (!any && bottom.Count == 0 && !helpShown)
+            if (!any && ktext == null && bottom.Count == 0 && !helpShown)
                 bottom.Add(Tuple.Create((voice ? KeyName + " hablar" : "solo ver") + " · " + HelpKeyName + " ayuda" +
                                         (room == null ? "" : ManualRoom ? " · sala " + cfg.Get("Sala", "") : ""), dim));
 
@@ -3649,6 +3791,17 @@ Puerto=8765
             foreach (var it in items)
             {
                 if (it.E != null) DrawIcon(g, it.E, it.R);
+                if (it.Num > 0)
+                {
+                    // numero del candidato (abajo a la izquierda)
+                    int bs = Math.Max(16, it.R.Width * 2 / 5);
+                    var br = new Rectangle(it.R.X - 3, it.R.Bottom - bs + 3, bs, bs);
+                    using (var b = new SolidBrush(Color.FromArgb(240, 240, 245))) g.FillEllipse(b, br);
+                    using (var f = new Font("Segoe UI", bs * 0.6f, FontStyle.Bold, GraphicsUnit.Pixel))
+                        TextRenderer.DrawText(g, it.Num.ToString(), f, br, Color.FromArgb(20, 20, 28),
+                            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                }
+                if (it.E != null) { }
                 else if (it.Slot)
                 {
                     var r = it.R;

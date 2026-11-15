@@ -1,8 +1,8 @@
 {
-    "version":  11,
-    "notes":  "Idioma de nombres y de descripciones por separado (menu Idioma)",
-    "date":  "2026-11-15 18:37",
+    "version":  12,
+    "notes":  "Addons por descripcion vaga con candidatos para elegir; nombre del killer arriba (opcional, con tamano)",
+    "date":  "2026-11-15 18:51",
     "files":  {
-                  "DbdOverlay.exe":  "f9835cf87b0a2b9fabff09383a15fdf70a7e0ba531cea314a7f00c189e4c8e8d"
+                  "DbdOverlay.exe":  "653d8f44ea74a001ba5411a79dc5c463bd6a7312c67c97bbf9203502565ca847"
               }
 }
