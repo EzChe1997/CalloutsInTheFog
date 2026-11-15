@@ -1,8 +1,8 @@
 {
-    "version":  15,
-    "notes":  "Addons en las esquinas libres del rombo (mas compacto); escala general del widget",
-    "date":  "2026-11-15 19:08",
+    "version":  16,
+    "notes":  "Boton de instalar Whisper deshabilitado si ya esta instalado",
+    "date":  "2026-11-15 19:50",
     "files":  {
-                  "DbdOverlay.exe":  "7f61fc885ffaa8084aa963823871286e3c18390eaed066cc8f8a0e3fe1611978"
+                  "DbdOverlay.exe":  "ff3ffcbe8c0ba322f0dbedff457f979ec1c2fe9dccf27a9c9a84892867fa2879"
               }
 }

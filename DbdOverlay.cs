@@ -2176,7 +2176,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 15;
+        public const int AppVersion = 16;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3334,7 +3334,14 @@ Puerto=8765
             langMenu.DropDownItems.Add(LangMenu("Nombres", "IdiomaNombres", "en"));
             langMenu.DropDownItems.Add(LangMenu("Descripciones", "IdiomaDescripciones", "es"));
             menu.Items.Add(langMenu);
-            menu.Items.Add("Instalar voz (Whisper)…", null, (s, e) => InstallVoice());
+            var voiceItem = new ToolStripMenuItem("Instalar voz (Whisper)…", null, (s, e) => InstallVoice());
+            menu.Items.Add(voiceItem);
+            // si ya esta instalado (o instalandose) el boton queda deshabilitado
+            menu.Opening += (s, e) =>
+            {
+                voiceItem.Enabled = !voice && !installing;
+                voiceItem.Text = voice ? "Voz (Whisper) instalada ✓" : installing ? "Instalando voz (Whisper)…" : "Instalar voz (Whisper)…";
+            };
             menu.Items.Add("Abrir configuración", null, (s, e) => { try { Process.Start("notepad.exe", "\"" + Path.Combine(dir, "config.ini") + "\""); } catch { } });
             menu.Items.Add("Editar apodos", null, (s, e) => { try { st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(dir, "apodos.txt") + "\""); } catch { } });
             menu.Items.Add("Abrir carpeta", null, (s, e) => { try { Process.Start("explorer.exe", "\"" + dir + "\""); } catch { } });
