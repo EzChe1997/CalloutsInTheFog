@@ -502,15 +502,33 @@ Puerto=8765
             s = Regex.Replace(s, @" *\n *", "\n");
             s = Regex.Replace(s, @"\n{3,}", "\n\n");
             s = Regex.Replace(s, @"\n+•", "\n•").Trim(); // las viñetas pegadas a la frase que las presenta
+            s = Regex.Replace(s, @"(?<=[a-zà-ÿ%)])\.(?=\p{Lu})", ". "); // "adicional.Permite" -> "adicional. Permite"
             return s;
         }
 
         // solo lo que hace (sin el texto de ambientacion del principio, que no dice nada del efecto)
-        static string Effect(string html)
+        static string Effect(string html) { return StripHtml(EffectHtml(html)); }
+
+        static bool IsFlavor(string s) { return !Regex.IsMatch(s, @"\d|<b>|\{|<li>"); }
+
+        static readonly Regex GlossaryRx = new Regex(
+            @"^(?:(?:El|La|Los|Las|The)\s+(?:estado\s+(?:de\s+)?)?)?(?:Hemorragia|Herida profunda|Laceración|Celeridad|Inconsciencia|Ceguera|Agotamiento|Agotado|Expuesto|Obstaculizado|Obstaculización|Mutilado|Mutilación|Destrozado|Quebrantado|Indetectable|Incapacitado|Incapacitación|Locura|Haemorrhage|Hemorrhage|Deep Wound|Haste|Oblivious|Blindness|Exhausted|Exhaustion|Exposed|Hindered|Mangled|Broken|Undetectable|Incapacitated|Madness)\s+(?:aumenta|reduce|impide|revierte|hace|hará|provoca|evita|ralentiza|increases|decreases|prevents|reverts|regresses|causes|makes|slows|lasts|dura)\b",
+            RegexOptions.IgnoreCase);
+
+        // la ambientacion va primero: o es un parrafo aparte, o termina en un punto pegado al efecto ("...campana.<b>Aumenta</b>...")
+        public static string EffectHtml(string html)
         {
             var parts = Regex.Split(html ?? "", @"(?:<br\s*/?>\s*){2,}", RegexOptions.IgnoreCase).Where(p => p.Trim().Length > 0).ToList();
-            if (parts.Count >= 2 && !Regex.IsMatch(parts[0], @"\d|<b>|\{")) parts.RemoveAt(0);
-            return StripHtml(string.Join(" ", parts));
+            if (parts.Count == 0) return "";
+            if (parts.Count >= 2 && IsFlavor(parts[0])) parts.RemoveAt(0);
+            else
+            {
+                var m = Regex.Match(parts[0], @"^(.*?[.!?…])(?=<b>|<i>|\p{Lu})");
+                if (m.Success && m.Length < parts[0].Length && IsFlavor(m.Groups[1].Value)) parts[0] = parts[0].Substring(m.Length);
+            }
+            // glosario del final ("Hemorragia revierte el progreso de curacion…"): explica el estado en general, no el addon
+            parts = parts.Where((p, i) => i == 0 || !GlossaryRx.IsMatch(StripHtml(p).Trim())).ToList();
+            return string.Join("<br><br>", parts);
         }
 
         static Dictionary<string, object> Dict(Dictionary<string, object> d, string k)
@@ -598,12 +616,12 @@ Puerto=8765
                     string nameEs = WebUtility.HtmlDecode(S(de, "name"));
                     e.AddKey(nameEs);
                     foreach (var t in Txt.Tokens(nameEs + " " + Effect(S(de, "description")))) e.Desc.Add(t);
-                    e.NameEs = nameEs; e.Info = NiceDesc(S(de, "description"), null);
+                    e.NameEs = nameEs; e.Info = NiceDesc(EffectHtml(S(de, "description")), null);
                 }
-                else e.Info = NiceDesc(S(d, "description"), null);
+                else e.Info = NiceDesc(EffectHtml(S(d, "description")), null);
                 // tambien la descripcion en ingles: la jerga de los jugadores sale de ahi ("blink", "cloak", "bell")
                 foreach (var t in Txt.Tokens(name + " " + Effect(S(d, "description")))) e.Desc.Add(t);
-                e.InfoEn = NiceDesc(S(d, "description"), null, false);
+                e.InfoEn = NiceDesc(EffectHtml(S(d, "description")), null, false);
                 c.Addons.Add(e);
             }
             // ofrendas que puede quemar el killer (las de killer y las compartidas; sin las retiradas)
@@ -629,14 +647,14 @@ Puerto=8765
                                       Txt.FileKey(Regex.Replace(S(d, "image").Split('/').Last(), "^icons?Favors_", "", RegexOptions.IgnoreCase)));
                     object eso;
                     string desc = StripHtml(S(d, "description"));
-                    e.Info = NiceDesc(S(d, "description"), null); e.InfoEn = NiceDesc(S(d, "description"), null, false);
+                    e.Info = NiceDesc(EffectHtml(S(d, "description")), null); e.InfoEn = NiceDesc(EffectHtml(S(d, "description")), null, false);
                     if (offsEs != null && offsEs.TryGetValue(kv.Key, out eso) && eso is Dictionary<string, object>)
                     {
                         var de = (Dictionary<string, object>)eso;
                         string nameEs = WebUtility.HtmlDecode(S(de, "name"));
                         e.AddKey(nameEs);
                         desc = nameEs + " " + StripHtml(S(de, "description"));
-                        e.NameEs = nameEs; e.Info = NiceDesc(S(de, "description"), null);
+                        e.NameEs = nameEs; e.Info = NiceDesc(EffectHtml(S(de, "description")), null);
                     }
                     foreach (var t in Txt.Tokens(desc)) e.Desc.Add(t);
                     c.Offerings.Add(e);
@@ -2158,7 +2176,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 12;
+        public const int AppVersion = 13;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3914,7 +3932,8 @@ Puerto=8765
                 var cat = Catalog.Load(Path.Combine(dir, "datos"));
                 var sb = new StringBuilder();
                 foreach (var a in cat.Addons.Where(x => x.Killer == args[1]))
-                    sb.Append(a.Name + " [" + a.Icon + "]: " + string.Join(" ", a.Desc) + "\r\n");
+                    sb.Append(a.Name + " [" + a.Icon + "]: " + string.Join(" ", a.Desc) + "\r\n    ES: " + (a.Info ?? "").Replace("\n", " / ") +
+                              "\r\n    EN: " + (a.InfoEn ?? "").Replace("\n", " / ") + "\r\n");
                 if (args.Length >= 4) sb.Append("TOKENS: " + string.Join(" ", Txt.Tokens(args[3])) + "\r\n");
                 File.WriteAllText(args[2], sb.ToString(), Encoding.UTF8);
                 return;

@@ -1,8 +1,8 @@
 {
-    "version":  12,
-    "notes":  "Addons por descripcion vaga con candidatos para elegir; nombre del killer arriba (opcional, con tamano)",
-    "date":  "2026-11-15 18:51",
+    "version":  13,
+    "notes":  "Descripciones sin texto de ambientacion: solo lo que hace",
+    "date":  "2026-11-15 19:01",
     "files":  {
-                  "DbdOverlay.exe":  "653d8f44ea74a001ba5411a79dc5c463bd6a7312c67c97bbf9203502565ca847"
+                  "DbdOverlay.exe":  "c9efe5467137eaeb5f41b264df8eb7bbd0d207a0b35c060ef68b3f9b4195e581"
               }
 }
