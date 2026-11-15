@@ -693,7 +693,7 @@ Puerto=8765
         public List<Entry> Doubt = new List<Entry>();
         // addon descripto de forma vaga: candidatos para elegir por numero (el primero queda anotado como sospecha)
         public List<Entry> Pick; public Entry PickEntry; public int PickUntil;
-        static readonly Regex PickRx = new Regex(@"^(?:(?:es|era|seria)\s+)?(?:(?:el|la)\s+)?(?:numero\s+|opcion\s+)?(uno|1|primero|primer|primera|dos|2|segundo|segunda|tres|3|tercero|tercer|tercera|ninguno|ninguna|ningun)\b(?:\s+(?:es|era))?$");
+        static readonly Regex PickRx = new Regex(@"^(?:(?:es|era|seria)\s+)?(?:(?:el|la)\s+)?(?:numero\s+|opcion\s+)?(uno|1|primero|primer|primera|dos|2|segundo|segunda|tres|3|tercero|tercer|tercera|cuatro|4|cuarto|cuarta|cinco|5|quinto|quinta|ninguno|ninguna|ningun)\b(?:\s+(?:es|era))?$");
         public bool IsDoubt(Entry e) { return e != null && Doubt.Contains(e); }
 
         // ofrenda que quemo el killer (una sola)
@@ -1173,7 +1173,8 @@ Puerto=8765
                     var cands = Pick; var old = PickEntry;
                     Pick = null;
                     if (w.StartsWith("ningun")) { RemoveEntry(old); return "- addon " + old.Name + " (ninguno de esos: describilo de otra forma)"; }
-                    int idx = w == "uno" || w == "1" || w.StartsWith("primer") ? 0 : w == "dos" || w == "2" || w.StartsWith("segund") ? 1 : 2;
+                    int idx = w == "uno" || w == "1" || w.StartsWith("primer") ? 0 : w == "dos" || w == "2" || w.StartsWith("segund") ? 1
+                            : w == "cuatro" || w == "4" || w.StartsWith("cuart") ? 3 : w == "cinco" || w == "5" || w.StartsWith("quint") ? 4 : 2;
                     if (idx >= cands.Count) return "solo había " + cands.Count + " opciones";
                     var ch = cands[idx];
                     Addons[Addons.IndexOf(old)] = ch;
@@ -1385,9 +1386,66 @@ Puerto=8765
             return e;
         }
 
+        // color de la rareza como lo dice la gente: rojo = iridiscente, violeta, verde, amarillo, marron
+        static readonly Regex ColorRx = new Regex(@"\b(rojos?|rojas?|red|iridiscentes?|iri|visceral|violetas?|morad[oa]s?|purpuras?|lilas?|purple|violet|verdes?|green|amarill[oa]s?|yellow|marron(?:es)?|cafe|brown)\b");
+        static string ColorRarity(string w)
+        {
+            if (Regex.IsMatch(w, "^(roj|red|irid|iri$|visc)")) return "visceral";
+            if (Regex.IsMatch(w, "^(viol|morad|purp|lila)")) return "veryrare";
+            if (Regex.IsMatch(w, "^(verd|green)")) return "rare";
+            if (Regex.IsMatch(w, "^(amari|yell)")) return "uncommon";
+            return "common";
+        }
+        static string ColorName(string rar)
+        {
+            switch (rar) { case "visceral": return "rojo"; case "veryrare": return "violeta"; case "rare": return "verde"; case "uncommon": return "amarillo"; default: return "marrón"; }
+        }
+
+        static string ColorPlural(string rar) { return rar == "common" ? "marrones" : ColorName(rar) + "s"; }
+
+        // varios candidatos: se anota el primero como sospecha y se elige con "el dos"
+        string OfferPick(List<Entry> cands, string why)
+        {
+            var e = cands[0];
+            Pick = cands; PickEntry = e; PickUntil = Environment.TickCount + 30000;
+            Addons.Add(e);
+            if (!Doubt.Contains(e)) Doubt.Add(e);
+            return "+ addon: " + e.Name + " (?) · " + (why.Length > 0 ? why + " " : "") + "¿cuál es? " + string.Join(" · ", cands.Select((x, i) => (i + 1) + " " + x.Name)) + " (decí \"el dos\"…)";
+        }
+
         string AddAddonText(string text)
         {
             text = Regex.Replace(text, @"^\W*(?:(?:tienes?|lleva|usa|tambien|también)\b[\s.,:;…]*)+", "", RegexOptions.IgnoreCase).Trim();
+            // "el addon ese rojo (que hace X)": el color filtra por rareza
+            string rar = null;
+            var colm = ColorRx.Match(Txt.Norm(text));
+            if (colm.Success)
+            {
+                rar = ColorRarity(colm.Groups[1].Value);
+                text = Txt.Norm(text).Remove(colm.Index, colm.Length).Trim();
+                T("color: " + colm.Groups[1].Value + " -> " + rar);
+            }
+            if (rar != null && Killer != null)
+            {
+                if (Addons.Count >= 2) return "ya tiene 2 addons (decí \"quitar ...\" o \"quitar addons\")";
+                var byColor = KillerAddons().Where(a => a.Rarity == rar && !Addons.Contains(a)).ToList();
+                if (byColor.Count == 0) return "no hay addons " + ColorPlural(rar) + " de " + Killer.Name;
+                Entry ce = null;
+                if (Txt.Tokens(text).Count > 0)
+                {
+                    var bn = Best(Strip(Txt.Norm(text)), byColor);
+                    if (bn != null && bn.S >= 0.78) ce = bn.E;
+                    List<Entry> cties = new List<Entry>();
+                    if (ce == null) ce = MatchDesc(text, byColor, out cties);
+                    if (ce == null && cties.Count > 1) return OfferPick(cties, ColorName(rar) + ":");
+                    if (ce == null && cties.Count == 1) ce = cties[0];
+                }
+                if (ce == null && byColor.Count == 1) ce = byColor[0];
+                if (ce == null) return OfferPick(byColor.Take(5).ToList(), "hay " + byColor.Count + " " + ColorPlural(rar) + ":");
+                Addons.Add(ce);
+                if (doubtMode) Doubt.Add(ce);
+                return "+ addon: " + ce.Name + (doubtMode ? " (?)" : "");
+            }
             string n = Strip(Txt.Norm(text));
             if (n.Length == 0) return "no entendí qué hace el addon";
             var pool = KillerAddons();
@@ -1409,15 +1467,7 @@ Puerto=8765
                 e = MatchDesc(text, pool, out ties);
                 ties = ties.Where(x => !Addons.Contains(x)).ToList();
                 if (e == null && ties.Count == 1) { e = ties[0]; doubtMode = true; }
-                else if (e == null && ties.Count > 1)
-                {
-                    // dudoso: se anota el mas probable como sospecha y se ofrecen los otros para elegir ("el dos")
-                    e = ties[0];
-                    Pick = ties; PickEntry = e; PickUntil = Environment.TickCount + 30000;
-                    Addons.Add(e);
-                    if (!Doubt.Contains(e)) Doubt.Add(e);
-                    return "+ addon: " + e.Name + " (?) · ¿cuál es? " + string.Join(" · ", ties.Select((x, i) => (i + 1) + " " + x.Name)) + " (decí \"el dos\"…)";
-                }
+                else if (e == null && ties.Count > 1) return OfferPick(ties, ""); // dudoso: elegir con "el dos"
                 else if (e == null) extra = " (no lo reconocí entre los addons de " + Killer.Name + ")";
             }
             else if (e == null) extra = " (decí el killer para reconocerlo)";
@@ -2176,7 +2226,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 17;
+        public const int AppVersion = 18;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";

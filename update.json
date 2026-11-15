@@ -1,8 +1,8 @@
 {
-    "version":  17,
-    "notes":  "Opcion para mostrar el widget solo con el menu de DBD abierto",
-    "date":  "2026-11-15 19:52",
+    "version":  18,
+    "notes":  "Addons por color de rareza (rojo, violeta, verde, amarillo, marron)",
+    "date":  "2026-11-15 20:54",
     "files":  {
-                  "DbdOverlay.exe":  "76dd0ab04c1f205f5994bc558c1d8a4b4144d0ef768cc8b0404710ed37fda83d"
+                  "DbdOverlay.exe":  "18dd82f4ab84bc9579b8a9da6346378ef03c2b6111e83425bb8048cb2bb193b6"
               }
 }
