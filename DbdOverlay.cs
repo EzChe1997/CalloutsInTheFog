@@ -296,18 +296,75 @@ Puerto=8765
             new[]{"monitor and abuse","monitor"}, new[]{"pain resonance","painless","pain res","pain reso"}
         };
 
+        // ---- datos al dia: al abrir se mira /api/versions (menos de 1 KB) y solo se baja lo que cambio desde la ultima vez
+        static readonly string[] Datasets = { "characters", "perks", "addons", "offerings" };
+        static Dictionary<string, string> remoteVer, localVer;
+        static bool fetchFailed;
+        public static string GameVersion = "", DataNews = "";
+
+        static Dictionary<string, string> ReadVer(string path)
+        {
+            var d = new Dictionary<string, string>();
+            if (File.Exists(path))
+                foreach (var l in File.ReadAllLines(path)) { int i = l.IndexOf('='); if (i > 0) d[l.Substring(0, i)] = l.Substring(i + 1); }
+            return d;
+        }
+
+        static void CheckVersions(string dir)
+        {
+            localVer = ReadVer(Path.Combine(dir, "versiones.txt"));
+            remoteVer = null; fetchFailed = false; DataNews = "";
+            try
+            {
+                var js = new JavaScriptSerializer();
+                var d = js.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(HttpBytes("https://dbd.tricky.lol/api/versions")));
+                var r = new Dictionary<string, string>();
+                foreach (var ds in Datasets)
+                {
+                    var x = d.ContainsKey(ds) ? d[ds] as Dictionary<string, object> : null;
+                    if (x == null) continue;
+                    r[ds] = S(x, "lastupdate");
+                    if (r[ds].Length > 0) r[ds + ".version"] = S(x, "version");
+                }
+                if (r.Count > 0) remoteVer = r;
+            }
+            catch { } // sin internet: se usa lo guardado
+            string v;
+            if (remoteVer != null && remoteVer.TryGetValue("perks.version", out v)) GameVersion = v;
+            else if (localVer.TryGetValue("perks.version", out v)) GameVersion = v;
+            var changed = Datasets.Where(Changed).ToList();
+            if (remoteVer != null && localVer.Count > 0 && changed.Count > 0)
+                DataNews = "datos del juego actualizados" + (GameVersion.Length > 0 ? " (" + GameVersion + ")" : "");
+        }
+
+        static bool Changed(string ds)
+        {
+            if (remoteVer == null) return false;
+            string a, b;
+            return !remoteVer.TryGetValue(ds, out a) || !localVer.TryGetValue(ds, out b) || a != b;
+        }
+
+        static void SaveVersions(string dir)
+        {
+            if (remoteVer == null || fetchFailed) return; // si algo no bajo, la proxima vez se reintenta
+            File.WriteAllLines(Path.Combine(dir, "versiones.txt"), remoteVer.Select(kv => kv.Key + "=" + kv.Value));
+        }
+
         static string Fetch(string dir, string file, string url)
         {
             string path = Path.Combine(dir, file);
-            bool stale = !File.Exists(path) || (DateTime.Now - File.GetLastWriteTime(path)).TotalDays > 3;
+            string ds = Regex.Match(url, @"/api/(\w+)").Groups[1].Value;
+            // con la lista de versiones: bajar solo si cambio; sin ella (sin internet o caida): como antes, si tiene mas de 3 dias
+            bool stale = !File.Exists(path) || (remoteVer != null ? Changed(ds) : (DateTime.Now - File.GetLastWriteTime(path)).TotalDays > 3);
             if (stale)
             {
                 try
                 {
                     string txt = Encoding.UTF8.GetString(HttpBytes(url));
                     if (txt.TrimStart().StartsWith("{")) File.WriteAllText(path, txt, Encoding.UTF8);
+                    else fetchFailed = true;
                 }
-                catch { /* sin internet: usamos el cache */ }
+                catch { fetchFailed = true; /* sin internet: usamos el cache */ }
             }
             if (!File.Exists(path)) throw new Exception("No pude descargar " + url + " y no hay copia guardada.");
             return File.ReadAllText(path, Encoding.UTF8);
@@ -331,7 +388,7 @@ Puerto=8765
         static List<string> WikiList(string dir, string file, string prefix)
         {
             string path = Path.Combine(dir, file);
-            bool stale = !File.Exists(path) || (DateTime.Now - File.GetLastWriteTime(path)).TotalDays > 7;
+            bool stale = !File.Exists(path) || (remoteVer != null ? Datasets.Any(Changed) : (DateTime.Now - File.GetLastWriteTime(path)).TotalDays > 7); // iconos nuevos: cuando cambian los datos
             if (stale)
             {
                 try
@@ -438,6 +495,7 @@ Puerto=8765
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
             Directory.CreateDirectory(dir);
             var js = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+            CheckVersions(dir);
             var chars = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "killers.json", "https://dbd.tricky.lol/api/characters?role=killer"));
             var perks = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "perks.json", "https://dbd.tricky.lol/api/perks?role=killer"));
             var addons = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "addons.json", "https://dbd.tricky.lol/api/addons?role=killer"));
@@ -562,6 +620,8 @@ Puerto=8765
 
             c.Info = c.Killers.Count + " killers, " + c.Perks.Count + " perks, " + c.Addons.Count + " addons, " + c.Offerings.Count + " ofrendas, iconos: " +
                      c.Perks.Count(x => x.Icon != null) + " perks / " + c.Addons.Count(x => x.Icon != null) + " addons / " + c.Offerings.Count(x => x.Icon != null) + " ofrendas";
+            c.Info += " · datos " + (GameVersion.Length > 0 ? GameVersion : "?") + (remoteVer == null ? " (sin conexión: copia guardada)" : DataNews.Length > 0 ? " (recién actualizados)" : " (al día)");
+            SaveVersions(dir);
             return c;
         }
     }
@@ -2029,7 +2089,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 9;
+        public const int AppVersion = 10;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2310,13 +2370,11 @@ Puerto=8765
             hoverTimer.Tick += (s, e) => HoverTick();
             hoverTimer.Start();
 
-            // actualizaciones: al abrir y cada 1 hora
+            // actualizaciones de la app: solo al abrir
+            if (Catalog.DataNews.Length > 0) Feedback(Catalog.DataNews, Color.FromArgb(150, 220, 150), 5000);
             if (!Preview)
             {
                 Updater.CleanOld();
-                updTimer = new System.Windows.Forms.Timer { Interval = 60 * 60 * 1000 };
-                updTimer.Tick += (s, e) => CheckUpdate();
-                updTimer.Start();
                 CheckUpdate();
             }
             Relayout();
@@ -2524,7 +2582,7 @@ Puerto=8765
             if (over == null || Environment.TickCount - hoverSince < 250) return;
             if (tip != null && tip.Visible && tip.Current == over) return;
             if (tip == null) tip = new HoverTip(new Font("Segoe UI", fItem.Size, FontStyle.Bold), fSmall);
-            string title = over.Name + (!string.IsNullOrEmpty(over.NameEs) && Txt.Norm(over.NameEs) != Txt.Norm(over.Name) ? "  ·  " + over.NameEs : "");
+            string title = over.Name; // nombres en ingles (como se conocen); la descripcion va en espanol
             string sub = over.K == Kind.Perk ? "Perk" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "")
                        : over.K == Kind.Offering ? "Ofrenda" : "Addon" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "");
             if (st.IsDoubt(over)) sub += " · sospecha (sin confirmar)";
@@ -2588,7 +2646,6 @@ Puerto=8765
         }
 
         // ---- actualizaciones: si hay version nueva firmada, la instala y reinicia (la lista se conserva)
-        System.Windows.Forms.Timer updTimer;
         bool updating;
 
         void CheckUpdate()

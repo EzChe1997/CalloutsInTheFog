@@ -1,8 +1,8 @@
 {
-    "version":  9,
-    "notes":  "Descripcion al pasar el mouse sobre perks, addons y ofrenda",
-    "date":  "2026-11-15 18:26",
+    "version":  10,
+    "notes":  "Datos del juego al dia segun la version (solo al abrir); sin consultas periodicas; nombres en ingles y descripciones en espanol",
+    "date":  "2026-11-15 18:33",
     "files":  {
-                  "DbdOverlay.exe":  "cfc8b372bfad997b398847e39c400cf2e37c5fb3251fceb7dc9f6563046743fb"
+                  "DbdOverlay.exe":  "9c929f2a68f2cbb627f68a38e66b948840c0e7cc1bf13a86383f33c20218830b"
               }
 }
