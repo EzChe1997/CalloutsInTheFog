@@ -1,8 +1,8 @@
 {
-    "version":  2,
-    "notes":  "Primera version en GitHub: actualizaciones automaticas",
-    "date":  "2026-11-15 17:56",
+    "version":  3,
+    "notes":  "Modo de diagnostico de actualizaciones",
+    "date":  "2026-11-15 17:57",
     "files":  {
-                  "DbdOverlay.exe":  "44ab25c5ea40a9adcb4b704e21ba0c02c5f8d1a549137ce99f7e2258f9cdd5b0"
+                  "DbdOverlay.exe":  "4fa236ff90c8287c66dee57d544550c19ca0125ca0cf9b4dbd20c6076e5419f7"
               }
 }

@@ -1973,7 +1973,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 2;
+        public const int AppVersion = 3;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3501,6 +3501,13 @@ Puerto=8765
             {
                 // despues de actualizarse: esperar a que cierre la version vieja (libera el bloqueo de instancia unica)
                 try { var old = Process.GetProcessById(int.Parse(args[1])); old.WaitForExit(15000); } catch { }
+            }
+            if (args.Length >= 2 && args[0] == "--actualizar")
+            {
+                // prueba/diagnostico: buscar e instalar la version nueva sin abrir el overlay
+                string err, what = Updater.CheckAndInstall(out err);
+                File.WriteAllText(args[1], "local " + Updater.AppVersion + " | instalada: " + (what ?? "-") + " | error: " + (err ?? "-"));
+                return;
             }
             if (args.Length >= 1 && args[0] == "--version") { File.WriteAllText(Path.Combine(dir, "version.txt"), Updater.AppVersion.ToString()); return; }
             bool created;
