@@ -1973,7 +1973,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 3;
+        public const int AppVersion = 4;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2231,6 +2231,7 @@ Puerto=8765
             {
                 StartVoice();
                 if (ListenOn) StartListen();
+                if (HandsOn) StartHands();
                 StartRoom();
                 UpdateRoomMenu();
                 // sala automatica: mira cada 5 s si DBD esta abierto (el vigia de Steam solo vive mientras el juego corre)
@@ -2503,41 +2504,115 @@ Puerto=8765
             {
                 Thread.Sleep(800);
                 if (lb.LastError.Length > 0) { BeginInvoke((Action)(() => { DebugEvent("discord: ERROR " + lb.LastError); Feedback("no pude escuchar el audio de la PC: " + lb.LastError, Color.OrangeRed, 8000); })); return; }
-                long pos = lb.Pos, segStart = -1; int quiet = 0;
-                const int frame = 320; // 20 ms
-                while (listening && loop == lb)
+                RunVad(() => lb.Pos, lb.Get, 500, 0, () => listening && loop == lb, () => false, OnHeard);
+            }) { IsBackground = true }.Start();
+        }
+
+        // corta el audio en frases (voz entre silencios) y pasa cada una por Whisper.
+        // thr: volumen minimo de voz; peak: volumen pico minimo de la frase (0 = sin minimo); paused: no escuchar (ej. mientras se aprieta la tecla)
+        void RunVad(Func<long> posF, Func<long, long, short[]> getF, int thr, int peak, Func<bool> alive, Func<bool> paused, Action<string, double, int> heard)
+        {
+            long pos = posF(), segStart = -1; int quiet = 0; double segPeak = 0;
+            const int frame = 320; // 20 ms
+            while (alive())
+            {
+                Thread.Sleep(100);
+                long end = posF();
+                if (end < pos || paused()) { pos = end; segStart = -1; continue; } // micro reiniciado o tecla apretada
+                while (pos + frame <= end && alive())
                 {
-                    Thread.Sleep(100);
-                    long end = lb.Pos;
-                    while (pos + frame <= end && listening)
+                    var f = getF(pos, pos + frame);
+                    double e = 0; foreach (var x in f) e += (double)x * x;
+                    double rms = Math.Sqrt(e / Math.Max(1, f.Length));
+                    bool loud = rms > thr;
+                    if (segStart < 0) { if (loud) { segStart = Math.Max(0, pos - 16000 * 3 / 10); quiet = 0; segPeak = rms; } }
+                    else
                     {
-                        var f = lb.Get(pos, pos + frame);
-                        double e = 0; foreach (var x in f) e += (double)x * x;
-                        bool loud = Math.Sqrt(e / Math.Max(1, f.Length)) > 500;
-                        if (segStart < 0) { if (loud) { segStart = Math.Max(0, pos - 16000 * 3 / 10); quiet = 0; } }
-                        else
+                        quiet = loud ? 0 : quiet + 1;
+                        segPeak = Math.Max(segPeak, rms);
+                        if (quiet >= 30 || pos - segStart >= 16000 * 8) // 0,6 s de silencio o 8 s maximo
                         {
-                            quiet = loud ? 0 : quiet + 1;
-                            if (quiet >= 30 || pos - segStart >= 16000 * 8) // 0,6 s de silencio o 8 s maximo
+                            var seg = getF(segStart, pos);
+                            segStart = -1;
+                            if (seg.Length >= 16000 * 6 / 10 && segPeak >= peak && serverReady && !paused())
                             {
-                                var seg = lb.Get(segStart, pos);
-                                segStart = -1;
-                                if (seg.Length >= 16000 * 6 / 10 && serverReady)
-                                {
-                                    string text = null, prompt = null;
-                                    try { Invoke((Action)(() => prompt = st.Prompt())); } catch { return; }
-                                    var t0 = DateTime.Now;
-                                    try { text = Whisper.Transcribe(port, Whisper.Wav(seg), prompt); } catch { }
-                                    int ms = (int)(DateTime.Now - t0).TotalMilliseconds;
-                                    double secs = seg.Length / 16000.0;
-                                    if (text != null) { string tx = text; BeginInvoke((Action)(() => OnHeard(tx, secs, ms))); }
-                                }
+                                string text = null, prompt = null;
+                                try { Invoke((Action)(() => prompt = st.Prompt())); } catch { return; }
+                                var t0 = DateTime.Now;
+                                try { text = Whisper.Transcribe(port, Whisper.Wav(seg), prompt); } catch { }
+                                int ms = (int)(DateTime.Now - t0).TotalMilliseconds;
+                                double secs = seg.Length / 16000.0;
+                                if (text != null) { string tx = text; BeginInvoke((Action)(() => heard(tx, secs, ms))); }
                             }
                         }
-                        pos += frame;
                     }
+                    pos += frame;
                 }
+            }
+        }
+
+        // ---- hablar sin tecla (prueba): escucha el micrófono todo el tiempo y solo anota frases claras de comando
+        volatile bool handsFree;
+        int handsGen;
+        ToolStripMenuItem handsItem;
+        // "tiene X", "creo que tiene X", "trajo/quemó X", "ofrenda X", "el killer es X"
+        static readonly Regex HandsRx = new Regex(@"\b(?:(?:creo|me parece|probablemente|capaz)\s+(?:que\s+)?)?(?:tiene|tenia|trajo|quemo|ofrenda|(?:el\s+)?(?:(?:k|qu)i(?:ll?|r)er|asesino)\s+es)\b.*$");
+        bool HandsOn { get { return Regex.IsMatch(cfg.Get("SinTecla", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase); } }
+
+        void SetHands(bool v)
+        {
+            SetCfg("SinTecla", v ? "si" : "no");
+            if (handsItem != null) handsItem.Checked = v;
+            if (v) StartHands(); else StopHands();
+            Feedback(v ? "hablar sin tecla: decí \"tiene…\", \"creo que tiene…\", \"el killer es…\" (sí/no/quitar siguen con " + KeyName + ")" : "hablar sin tecla: apagado", Color.FromArgb(150, 220, 150), 6000);
+        }
+
+        void StopHands()
+        {
+            if (!handsFree) return;
+            handsFree = false; handsGen++;
+            DebugEvent("sin tecla: apagado");
+        }
+
+        void StartHands()
+        {
+            if (handsFree) return;
+            if (!voice) { Feedback("para hablar sin tecla hace falta Whisper", Color.Orange, 5000); return; }
+            handsFree = true;
+            int gen = ++handsGen;
+            DebugEvent("sin tecla: escuchando el micrófono");
+            new Thread(() =>
+            {
+                while (mic == null && handsFree && gen == handsGen) Thread.Sleep(500);
+                RunVad(() => { var m = mic; return m != null ? m.Pos : 0; },
+                       (a, b) => { var m = mic; return m != null ? m.Get(a, b) : new short[0]; },
+                       300, 700, () => handsFree && gen == handsGen, () => talking || releaseAt >= 0 || busy, OnHandsHeard);
             }) { IsBackground = true }.Start();
+        }
+
+        void OnHandsHeard(string text, double secs, int ms)
+        {
+            string raw = text.Trim(), nt = Txt.Norm(text);
+            var sb = new StringBuilder("==== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " (SIN TECLA) ====\r\n");
+            sb.Append("micrófono: " + secs.ToString("0.0", CultureInfo.InvariantCulture) + " s, Whisper " + ms + " ms\r\n");
+            sb.Append("whisper: \"" + raw + "\"\r\n");
+            var m = HandsRx.Match(nt);
+            if (!m.Success) { sb.Append("resultado: (no es un comando: se ignora)"); Debug(sb.ToString()); return; }
+            if (raw.StartsWith("¿") || raw.EndsWith("?")) { sb.Append("resultado: (es una pregunta: se ignora)"); Debug(sb.ToString()); return; }
+            if (Regex.IsMatch(nt.Substring(0, m.Index), @"\b(no|ni|nunca|tampoco)\s*$")) { sb.Append("resultado: (frase negativa: se ignora)"); Debug(sb.ToString()); return; }
+            sb.Append("antes:   " + st.Describe() + "\r\n");
+            var before = st.Snapshot();
+            st.Trace.Clear();
+            string what = st.Apply(m.Value);
+            st.ForgetGuess(); // sin tecla no se aprenden apodos ni se pregunta "¿X?"
+            foreach (var line in st.Trace) sb.Append(line + "\r\n");
+            sb.Append("resultado: " + what + "\r\ndespues: " + st.Describe());
+            Debug(sb.ToString());
+            Log("[sin tecla] " + raw, what);
+            if (what.StartsWith("no ") || what.Contains("ya estaba")) return; // lo que no sirvio no molesta
+            st.Save(Path.Combine(dir, "estado.txt"));
+            PublishDiff(before);
+            Feedback("🎙 “" + raw + "” → " + what, Color.FromArgb(150, 220, 150), 6000);
         }
 
         void OnHeard(string text, double secs, int ms)
@@ -2856,6 +2931,9 @@ Puerto=8765
             listenItem = new ToolStripMenuItem("Escuchar Discord (prueba)") { Checked = ListenOn };
             listenItem.Click += (s, e) => SetListen(!ListenOn);
             menu.Items.Add(listenItem);
+            handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)") { Checked = HandsOn };
+            handsItem.Click += (s, e) => SetHands(!HandsOn);
+            menu.Items.Add(handsItem);
             menu.Items.Add("Instalar voz (Whisper)…", null, (s, e) => InstallVoice());
             menu.Items.Add("Abrir configuración", null, (s, e) => { try { Process.Start("notepad.exe", "\"" + Path.Combine(dir, "config.ini") + "\""); } catch { } });
             menu.Items.Add("Editar apodos", null, (s, e) => { try { st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(dir, "apodos.txt") + "\""); } catch { } });
