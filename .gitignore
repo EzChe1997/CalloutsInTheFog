@@ -1,0 +1,15 @@
+# configuracion y datos personales de cada PC
+config.ini
+apodos.txt
+estado.txt
+historial.txt
+version.txt
+logs/
+datos/
+iconos/
+whisper/
+dist/
+*.bak*
+*.zip
+*.old
+DbdOverlay-test.exe
