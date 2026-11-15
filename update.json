@@ -1,8 +1,8 @@
 {
-    "version":  5,
-    "notes":  "Tamano de los iconos configurable desde el menu",
-    "date":  "2026-11-15 18:07",
+    "version":  6,
+    "notes":  "La ofrenda va en la esquina superior derecha del rombo",
+    "date":  "2026-11-15 18:15",
     "files":  {
-                  "DbdOverlay.exe":  "a37ad7f900370512046c5fa4c81585eb89d8b1601ffab75700d9e6aec72c0808"
+                  "DbdOverlay.exe":  "b3dda73f451186d4c8d40424b31cb455e2586b7ae03452838884b0254e9f60a6"
               }
 }
