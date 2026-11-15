@@ -1,8 +1,8 @@
 {
-    "version":  16,
-    "notes":  "Boton de instalar Whisper deshabilitado si ya esta instalado",
-    "date":  "2026-11-15 19:50",
+    "version":  17,
+    "notes":  "Opcion para mostrar el widget solo con el menu de DBD abierto",
+    "date":  "2026-11-15 19:52",
     "files":  {
-                  "DbdOverlay.exe":  "ff3ffcbe8c0ba322f0dbedff457f979ec1c2fe9dccf27a9c9a84892867fa2879"
+                  "DbdOverlay.exe":  "76dd0ab04c1f205f5994bc558c1d8a4b4144d0ef768cc8b0404710ed37fda83d"
               }
 }

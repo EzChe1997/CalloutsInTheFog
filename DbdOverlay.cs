@@ -2176,7 +2176,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 16;
+        public const int AppVersion = 17;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2722,14 +2722,47 @@ Puerto=8765
         Entry hoverE;
         int hoverSince;
 
+        // ---- visibilidad: "siempre" o "solo con el menu de DBD abierto".
+        // No se lee nada del juego: con DBD en primer plano, el menu (ESC) es cuando el cursor esta visible.
+        [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
+        bool MenuOnly { get { return cfg.Get("Visibilidad", "siempre").ToLowerInvariant().StartsWith("menu"); } }
+        int fgPid = -1; bool fgIsDbd;
+        bool hiddenByMenu;
+
+        bool DbdInFront()
+        {
+            int pid; GetWindowThreadProcessId(GetForegroundWindow(), out pid);
+            if (pid != fgPid)
+            {
+                fgPid = pid; fgIsDbd = false;
+                try { fgIsDbd = Process.GetProcessById(pid).ProcessName.StartsWith("DeadByDaylight", StringComparison.OrdinalIgnoreCase); } catch { }
+            }
+            return fgIsDbd;
+        }
+
+        void UpdateVisibility(bool cursor)
+        {
+            bool show = true;
+            if (MenuOnly && DbdInFront() && !cursor)
+                // jugando: oculto, salvo mientras hablás o hay un mensaje / ayuda / candidatos para elegir
+                show = talking || busy || releaseAt >= 0 || helpShown || feedback.Length > 0 || st.Pick != null;
+            if (show == !hiddenByMenu) return;
+            hiddenByMenu = !show;
+            if (show) { Show(); SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); }
+            else { Hide(); if (tip != null) tip.Hide(); }
+        }
+
         void HoverTick()
         {
             // los candidatos de addon se van solos a los 30 s (queda anotado el primero como sospecha)
             if (st.Pick != null && Environment.TickCount - st.PickUntil > 0) { st.Pick = null; Relayout(); }
             Entry over = null; Rectangle rr = Rectangle.Empty;
             var ci = new CURSORINFO { cbSize = Marshal.SizeOf(typeof(CURSORINFO)) };
-            // en partida DBD esconde el cursor: ahi no se muestra nada
-            if (Visible && !helpShown && GetCursorInfo(ref ci) && (ci.flags & 1) != 0)
+            // en partida DBD esconde el cursor: ahi no se muestra nada (algunos juegos lo "esconden" dejandolo sin imagen)
+            bool cursor = GetCursorInfo(ref ci) && (ci.flags & 1) != 0 && ci.hCursor != IntPtr.Zero;
+            UpdateVisibility(cursor);
+            if (Visible && !helpShown && cursor)
             {
                 var p = new Point(ci.x - Left, ci.y - Top);
                 foreach (var it in items)
@@ -3329,6 +3362,15 @@ Puerto=8765
             }
             scaleMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in scaleMenu.DropDownItems) o.Checked = (int)o.Tag == cfg.GetInt("Escala", 100); };
             menu.Items.Add(scaleMenu);
+            var visMenu = new ToolStripMenuItem("Mostrar el widget");
+            var visAlways = new ToolStripMenuItem("Siempre");
+            var visMenuOnly = new ToolStripMenuItem("Solo con el menú de DBD abierto (ESC)");
+            visAlways.Click += (s, e) => { SetCfg("Visibilidad", "siempre"); Feedback("widget: siempre visible", Color.Silver, 3000); };
+            visMenuOnly.Click += (s, e) => { SetCfg("Visibilidad", "menu"); Feedback("widget: solo con el menú de DBD abierto", Color.Silver, 4000); };
+            visMenu.DropDownItems.Add(visAlways);
+            visMenu.DropDownItems.Add(visMenuOnly);
+            visMenu.DropDownOpening += (s, e) => { visAlways.Checked = !MenuOnly; visMenuOnly.Checked = MenuOnly; };
+            menu.Items.Add(visMenu);
             menu.Items.Add(KillerMenu());
             var langMenu = new ToolStripMenuItem("Idioma");
             langMenu.DropDownItems.Add(LangMenu("Nombres", "IdiomaNombres", "en"));
