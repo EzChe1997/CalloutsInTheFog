@@ -56,4 +56,4 @@ git commit -q -m "Version $ver$(if ($Notes) { ": $Notes" })"
 if (-not $NoPush) { git push -q origin main; if ($LASTEXITCODE) { throw 'No se pudo subir a GitHub (git push falló).' } }
 if ($running) { Get-Process DbdOverlay -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$here\*" } | Stop-Process -Force; Start-Sleep 1; Start-Process $exe }
 Write-Host ''
-Write-Host "Listo: versión $ver publicada. Tus amigos la reciben en menos de una hora (o al abrir la app)." -ForegroundColor Green
+Write-Host "Listo: versión $ver publicada. Tus amigos la reciben la próxima vez que abran la app." -ForegroundColor Green

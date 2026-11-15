@@ -250,7 +250,7 @@ Puerto=8765
         public Kind K; public string Name; public string Killer; public string Rarity;
         public string Icon;                                  // archivo en deadbydaylight.wiki.gg/images/
         public HashSet<string> Desc = new HashSet<string>(); // palabras de la descripcion en espanol
-        public string NameEs, Info;                          // nombre en espanol y descripcion para leer (hover)
+        public string NameEs, Info, InfoEn;                  // nombre en espanol y descripciones (espanol / ingles) para leer (hover)
         public List<Key> Keys = new List<Key>();
         public void AddKey(string s)
         {
@@ -451,7 +451,7 @@ Puerto=8765
             { "oblivious", "Inconsciente" }, { "undetectable", "Indetectable" }, { "incapacitated", "Incapacitado" } };
         static readonly CultureInfo Es = new CultureInfo("es-AR");
 
-        static string TunVal(Dictionary<string, object> tun, string name)
+        static string TunVal(Dictionary<string, object> tun, string name, bool es)
         {
             object o;
             if (tun == null || !tun.TryGetValue(name.ToLowerInvariant(), out o) || o == null) return "?";
@@ -459,14 +459,14 @@ Puerto=8765
             object v = arr != null ? (arr.Count > 0 ? arr[arr.Count - 1] : null) : o;
             if (v == null) return "?";
             double d;
-            return double.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out d) ? d.ToString("0.##", Es) : v.ToString();
+            return double.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out d) ? d.ToString("0.##", es ? Es : CultureInfo.InvariantCulture) : v.ToString();
         }
 
-        public static string NiceDesc(string html, Dictionary<string, object> tun)
+        public static string NiceDesc(string html, Dictionary<string, object> tun, bool es = true)
         {
             string s = html ?? "";
-            s = Regex.Replace(s, @"\{Tunable\.[^.}]+\.([^}]+)\}", m => TunVal(tun, m.Groups[1].Value));
-            s = Regex.Replace(s, @"\{Keyword\.([A-Za-z]+)\}", m => { string v; return KeywordEs.TryGetValue(m.Groups[1].Value.ToLowerInvariant(), out v) ? v : m.Groups[1].Value; });
+            s = Regex.Replace(s, @"\{Tunable\.[^.}]+\.([^}]+)\}", m => TunVal(tun, m.Groups[1].Value, es));
+            s = Regex.Replace(s, @"\{Keyword\.([A-Za-z]+)\}", m => { string v; return es && KeywordEs.TryGetValue(m.Groups[1].Value.ToLowerInvariant(), out v) ? v : char.ToUpperInvariant(m.Groups[1].Value[0]) + m.Groups[1].Value.Substring(1); });
             s = Regex.Replace(s, @"\{[^}]*\}", "");
             s = Regex.Replace(s, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
             s = Regex.Replace(s, @"<li>", "\n• ", RegexOptions.IgnoreCase);
@@ -543,6 +543,7 @@ Puerto=8765
                 var pe = Dict(perksEs, kv.Key);
                 if (pe != null) { e.NameEs = WebUtility.HtmlDecode(S(pe, "name")); e.Info = NiceDesc(S(pe, "description"), Dict(pe, "tunables") ?? Dict(d, "tunables")); }
                 else e.Info = NiceDesc(S(d, "description"), Dict(d, "tunables"));
+                e.InfoEn = NiceDesc(S(d, "description"), Dict(d, "tunables"), false);
                 c.Perks.Add(e);
             }
             foreach (var kv in addons)
@@ -571,6 +572,7 @@ Puerto=8765
                     foreach (var t in Txt.Tokens(StripHtml(S(d, "description")))) e.Desc.Add(t);
                     e.Info = NiceDesc(S(d, "description"), null);
                 }
+                e.InfoEn = NiceDesc(S(d, "description"), null, false);
                 c.Addons.Add(e);
             }
             // ofrendas que puede quemar el killer (las de killer y las compartidas; sin las retiradas)
@@ -596,7 +598,7 @@ Puerto=8765
                                       Txt.FileKey(Regex.Replace(S(d, "image").Split('/').Last(), "^icons?Favors_", "", RegexOptions.IgnoreCase)));
                     object eso;
                     string desc = StripHtml(S(d, "description"));
-                    e.Info = NiceDesc(S(d, "description"), null);
+                    e.Info = NiceDesc(S(d, "description"), null); e.InfoEn = NiceDesc(S(d, "description"), null, false);
                     if (offsEs != null && offsEs.TryGetValue(kv.Key, out eso) && eso is Dictionary<string, object>)
                     {
                         var de = (Dictionary<string, object>)eso;
@@ -613,7 +615,8 @@ Puerto=8765
 
             // ofrenda secreta: el juego muestra el dorso de la carta (no se sabe cual es)
             var secret = new Entry { K = Kind.Offering, Name = "Ofrenda secreta", Killer = "", Rarity = "secreta", Icon = "OfferingsBack.png",
-                                     Info = "El killer quemó una ofrenda oculta: no se sabe cuál es hasta que se revela." };
+                                     Info = "El killer quemó una ofrenda oculta: no se sabe cuál es hasta que se revela.",
+                                     InfoEn = "The Killer burned a hidden offering: you won't know which one until it is revealed.", NameEs = "Ofrenda secreta" };
             foreach (var k in new[] { "ofrenda secreta", "secreta", "secreto", "secret", "secret offering", "oculta", "escondida", "desconocida", "no se cual" })
                 secret.AddKey(k);
             c.Offerings.Add(secret);
@@ -2089,7 +2092,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 10;
+        public const int AppVersion = 11;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2559,6 +2562,45 @@ Puerto=8765
             File.Move(part, dest);
         }
 
+        // ---- idioma de los nombres y de las descripciones (por separado). Por voz se entienden los dos siempre.
+        bool NamesEs { get { return cfg.Get("IdiomaNombres", "en").ToLowerInvariant().StartsWith("es"); } }
+        bool DescEs { get { return !cfg.Get("IdiomaDescripciones", "es").ToLowerInvariant().StartsWith("en"); } }
+
+        string DName(Entry e)
+        {
+            if (NamesEs) return string.IsNullOrEmpty(e.NameEs) ? e.Name : e.NameEs;
+            return e.Rarity == "secreta" ? "Secret Offering" : e.Name;
+        }
+
+        string DInfo(Entry e)
+        {
+            if (DescEs) return string.IsNullOrEmpty(e.Info) ? e.InfoEn : e.Info;
+            return string.IsNullOrEmpty(e.InfoEn) ? e.Info : e.InfoEn;
+        }
+
+        ToolStripMenuItem LangMenu(string title, string key, string def)
+        {
+            var m = new ToolStripMenuItem(title);
+            foreach (var opt in new[] { Tuple.Create("en", "Inglés"), Tuple.Create("es", "Español") })
+            {
+                var it = new ToolStripMenuItem(opt.Item2) { Tag = opt.Item1 };
+                it.Click += (s, e) =>
+                {
+                    SetCfg(key, (string)((ToolStripMenuItem)s).Tag);
+                    if (tip != null) { tip.Hide(); hoverE = null; }
+                    Relayout();
+                    Feedback(title + ": " + ((ToolStripMenuItem)s).Text, Color.Silver, 3000);
+                };
+                m.DropDownItems.Add(it);
+            }
+            m.DropDownOpening += (s, e) =>
+            {
+                string cur = cfg.Get(key, def).ToLowerInvariant().StartsWith("es") ? "es" : "en";
+                foreach (ToolStripMenuItem o in m.DropDownItems) o.Checked = (string)o.Tag == cur;
+            };
+            return m;
+        }
+
         // ---- hover: descripcion del perk/addon/ofrenda bajo el cursor
         [DllImport("user32.dll")] static extern bool GetCursorInfo(ref CURSORINFO ci);
         [StructLayout(LayoutKind.Sequential)] struct CURSORINFO { public int cbSize, flags; public IntPtr hCursor; public int x, y; }
@@ -2576,20 +2618,20 @@ Puerto=8765
             {
                 var p = new Point(ci.x - Left, ci.y - Top);
                 foreach (var it in items)
-                    if (it.E != null && !string.IsNullOrEmpty(it.E.Info) && it.R.Contains(p)) { over = it.E; rr = it.R; }
+                    if (it.E != null && !string.IsNullOrEmpty(DInfo(it.E)) && it.R.Contains(p)) { over = it.E; rr = it.R; }
             }
             if (over != hoverE) { hoverE = over; hoverSince = Environment.TickCount; if (over == null && tip != null) tip.Hide(); return; }
             if (over == null || Environment.TickCount - hoverSince < 250) return;
             if (tip != null && tip.Visible && tip.Current == over) return;
             if (tip == null) tip = new HoverTip(new Font("Segoe UI", fItem.Size, FontStyle.Bold), fSmall);
-            string title = over.Name; // nombres en ingles (como se conocen); la descripcion va en espanol
+            string title = DName(over);
             string sub = over.K == Kind.Perk ? "Perk" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "")
                        : over.K == Kind.Offering ? "Ofrenda" : "Addon" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "");
             if (st.IsDoubt(over)) sub += " · sospecha (sin confirmar)";
             Color tc = over.K == Kind.Perk ? Color.WhiteSmoke : RarityColor(over.Rarity);
             var anchor = new Rectangle(Left + rr.X, Top + rr.Y, rr.Width, rr.Height);
             bool right = !cfg.Get("Posicion", "arriba-derecha").ToLowerInvariant().Contains("izq");
-            tip.ShowFor(over, title, tc, sub, over.Info, anchor, Bounds, right);
+            tip.ShowFor(over, title, tc, sub, DInfo(over), anchor, Bounds, right);
         }
 
         class HoverTip : Form
@@ -3156,6 +3198,10 @@ Puerto=8765
             }
             sizeMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in sizeMenu.DropDownItems) o.Checked = (int)o.Tag == PerkSize; };
             menu.Items.Add(sizeMenu);
+            var langMenu = new ToolStripMenuItem("Idioma");
+            langMenu.DropDownItems.Add(LangMenu("Nombres", "IdiomaNombres", "en"));
+            langMenu.DropDownItems.Add(LangMenu("Descripciones", "IdiomaDescripciones", "es"));
+            menu.Items.Add(langMenu);
             menu.Items.Add("Instalar voz (Whisper)…", null, (s, e) => InstallVoice());
             menu.Items.Add("Abrir configuración", null, (s, e) => { try { Process.Start("notepad.exe", "\"" + Path.Combine(dir, "config.ini") + "\""); } catch { } });
             menu.Items.Add("Editar apodos", null, (s, e) => { try { st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(dir, "apodos.txt") + "\""); } catch { } });
@@ -3468,11 +3514,11 @@ Puerto=8765
                     for (int i = 0; i < st.Perks.Count && i < 4; i++)
                     {
                         var p = st.Perks[i]; bool d = st.IsDoubt(p);
-                        nameLines.Add(Tuple.Create(arrows[i] + " " + p.Name + (d ? " (?)" : ""), d ? doubtC : Color.WhiteSmoke));
+                        nameLines.Add(Tuple.Create(arrows[i] + " " + DName(p) + (d ? " (?)" : ""), d ? doubtC : Color.WhiteSmoke));
                     }
-                    foreach (var a in st.Addons) if (a.Rarity != "nota") nameLines.Add(Tuple.Create("■ " + a.Name + (st.IsDoubt(a) ? " (?)" : ""), st.IsDoubt(a) ? doubtC : RarityColor(a.Rarity)));
+                    foreach (var a in st.Addons) if (a.Rarity != "nota") nameLines.Add(Tuple.Create("■ " + DName(a) + (st.IsDoubt(a) ? " (?)" : ""), st.IsDoubt(a) ? doubtC : RarityColor(a.Rarity)));
                     var of = st.Offering;
-                    if (of != null && of.Rarity != "nota") nameLines.Add(Tuple.Create("✦ " + of.Name + (st.IsDoubt(of) ? " (?)" : ""), st.IsDoubt(of) ? doubtC : RarityColor(of.Rarity)));
+                    if (of != null && of.Rarity != "nota") nameLines.Add(Tuple.Create("✦ " + DName(of) + (st.IsDoubt(of) ? " (?)" : ""), st.IsDoubt(of) ? doubtC : RarityColor(of.Rarity)));
                 }
                 foreach (var a in st.Addons) if (a.Rarity == "nota") nameLines.Add(Tuple.Create("? " + a.Name + (st.IsDoubt(a) ? " (?)" : ""), st.IsDoubt(a) ? Color.FromArgb(240, 190, 60) : Color.Gainsboro));
                 if (st.Offering != null && st.Offering.Rarity == "nota")
