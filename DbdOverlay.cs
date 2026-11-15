@@ -1973,7 +1973,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 6;
+        public const int AppVersion = 7;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3299,7 +3299,7 @@ Puerto=8765
                 // la ofrenda va en la esquina libre de arriba a la derecha del rombo (se dibuja antes: si se toca con un perk, el perk queda encima)
                 if (st.Offering != null && st.Offering.Rarity != "nota")
                 {
-                    int S = D / 2 + D / 16;
+                    int S = D * 64 / 100;
                     items.Add(new Item { R = new Rectangle(x + clusterW - S, ccy - clusterW / 2, S, S), E = st.Offering });
                 }
                 var centers = new[] { new Point(ccx, ccy - o), new Point(ccx - o, ccy), new Point(ccx + o, ccy), new Point(ccx, ccy + o) };
@@ -3427,6 +3427,20 @@ Puerto=8765
                 TextRenderer.DrawText(g, "?", fItem, r, Color.FromArgb(150, 150, 160),
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 return;
+            }
+            else if (e.K == Kind.Offering && e.Rarity != "secreta")
+            {
+                // ofrenda como en el juego: hexagono con punta arriba y abajo, del color de la rareza
+                var c = RarityColor(e.Rarity);
+                int w = r.Height * 88 / 100, cx = r.X + r.Width / 2, q = r.Height / 4;
+                r = new Rectangle(cx - w / 2, r.Y, w, r.Height);
+                var hex = new[] { new Point(cx, r.Y), new Point(r.Right, r.Y + q), new Point(r.Right, r.Bottom - q),
+                                  new Point(cx, r.Bottom), new Point(r.X, r.Bottom - q), new Point(r.X, r.Y + q) };
+                using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(r, Color.FromArgb(c.R * 2 / 3, c.G * 2 / 3, c.B * 2 / 3), Color.FromArgb(c.R / 4, c.G / 4, c.B / 4), 90f))
+                    g.FillPolygon(br, hex);
+                using (var pen = new Pen(Color.FromArgb(c.R * 4 / 5 + 20, c.G * 4 / 5 + 20, c.B * 4 / 5 + 20), Math.Max(1.5f, r.Height / 28f)))
+                    g.DrawPolygon(pen, hex);
+                r.Inflate(-r.Width / 7, -r.Height / 7); // el dibujo dentro del hexagono
             }
             else
             {

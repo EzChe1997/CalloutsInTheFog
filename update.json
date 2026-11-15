@@ -1,8 +1,8 @@
 {
-    "version":  6,
-    "notes":  "La ofrenda va en la esquina superior derecha del rombo",
-    "date":  "2026-11-15 18:15",
+    "version":  7,
+    "notes":  "Ofrenda con forma de hexagono como en el juego",
+    "date":  "2026-11-15 18:16",
     "files":  {
-                  "DbdOverlay.exe":  "b3dda73f451186d4c8d40424b31cb455e2586b7ae03452838884b0254e9f60a6"
+                  "DbdOverlay.exe":  "e0cb2be418fc22b162f77d853fc70ef8ebb5f1d50602ab4f375b9858c25bb242"
               }
 }
