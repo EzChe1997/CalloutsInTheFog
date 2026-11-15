@@ -1973,7 +1973,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 7;
+        public const int AppVersion = 8;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3299,8 +3299,10 @@ Puerto=8765
                 // la ofrenda va en la esquina libre de arriba a la derecha del rombo (se dibuja antes: si se toca con un perk, el perk queda encima)
                 if (st.Offering != null && st.Offering.Rarity != "nota")
                 {
-                    int S = D * 64 / 100;
-                    items.Add(new Item { R = new Rectangle(x + clusterW - S, ccy - clusterW / 2, S, S), E = st.Offering });
+                    // el hueco libre es el triangulo de la esquina con catetos D: el vertice de abajo a la izquierda
+                    // del hexagono (0,88 S hacia adentro, 0,75 S hacia abajo) tiene que quedar fuera de los rombos
+                    int S = (D - 6) * 100 / 163, w = S * 88 / 100;
+                    items.Add(new Item { R = new Rectangle(x + clusterW - w, ccy - clusterW / 2, w, S), E = st.Offering });
                 }
                 var centers = new[] { new Point(ccx, ccy - o), new Point(ccx - o, ccy), new Point(ccx + o, ccy), new Point(ccx, ccy + o) };
                 for (int i = 0; i < 4; i++)

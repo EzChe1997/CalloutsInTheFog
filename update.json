@@ -1,8 +1,8 @@
 {
-    "version":  7,
-    "notes":  "Ofrenda con forma de hexagono como en el juego",
-    "date":  "2026-11-15 18:16",
+    "version":  8,
+    "notes":  "La ofrenda ya no se superpone con los perks",
+    "date":  "2026-11-15 18:18",
     "files":  {
-                  "DbdOverlay.exe":  "e0cb2be418fc22b162f77d853fc70ef8ebb5f1d50602ab4f375b9858c25bb242"
+                  "DbdOverlay.exe":  "b3342d6326cc5fa90bb24ca7073804772ce132a676e193d32b51edb9dcde8038"
               }
 }
