@@ -250,6 +250,7 @@ Puerto=8765
         public Kind K; public string Name; public string Killer; public string Rarity;
         public string Icon;                                  // archivo en deadbydaylight.wiki.gg/images/
         public HashSet<string> Desc = new HashSet<string>(); // palabras de la descripcion en espanol
+        public string NameEs, Info;                          // nombre en espanol y descripcion para leer (hover)
         public List<Key> Keys = new List<Key>();
         public void AddKey(string s)
         {
@@ -386,6 +387,47 @@ Puerto=8765
             return WebUtility.HtmlDecode(Regex.Replace(s ?? "", "<[^>]+>", " "));
         }
 
+        // ---- descripcion legible: valores del nivel 3 en lugar de {Tunable…}, estados en espanol, sin HTML
+        static readonly Dictionary<string, string> KeywordEs = new Dictionary<string, string> {
+            { "haste", "Prisa" }, { "hindered", "Obstaculizado" }, { "exposed", "Expuesto" }, { "exhausted", "Agotado" },
+            { "blindness", "Ceguera" }, { "broken", "Destrozado" }, { "hemorrhage", "Hemorragia" }, { "mangled", "Mutilado" },
+            { "oblivious", "Inconsciente" }, { "undetectable", "Indetectable" }, { "incapacitated", "Incapacitado" } };
+        static readonly CultureInfo Es = new CultureInfo("es-AR");
+
+        static string TunVal(Dictionary<string, object> tun, string name)
+        {
+            object o;
+            if (tun == null || !tun.TryGetValue(name.ToLowerInvariant(), out o) || o == null) return "?";
+            var arr = o as System.Collections.ArrayList;
+            object v = arr != null ? (arr.Count > 0 ? arr[arr.Count - 1] : null) : o;
+            if (v == null) return "?";
+            double d;
+            return double.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), NumberStyles.Any, CultureInfo.InvariantCulture, out d) ? d.ToString("0.##", Es) : v.ToString();
+        }
+
+        public static string NiceDesc(string html, Dictionary<string, object> tun)
+        {
+            string s = html ?? "";
+            s = Regex.Replace(s, @"\{Tunable\.[^.}]+\.([^}]+)\}", m => TunVal(tun, m.Groups[1].Value));
+            s = Regex.Replace(s, @"\{Keyword\.([A-Za-z]+)\}", m => { string v; return KeywordEs.TryGetValue(m.Groups[1].Value.ToLowerInvariant(), out v) ? v : m.Groups[1].Value; });
+            s = Regex.Replace(s, @"\{[^}]*\}", "");
+            s = Regex.Replace(s, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @"<li>", "\n• ", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @"</?(ul|ol)>", "\n", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, "<[^>]+>", "");
+            s = WebUtility.HtmlDecode(s).Replace(' ', ' ');
+            s = Regex.Replace(s, @"[ \t]+", " ");
+            s = Regex.Replace(s, @" *\n *", "\n");
+            s = Regex.Replace(s, @"\n{3,}", "\n\n");
+            s = Regex.Replace(s, @"\n+•", "\n•").Trim(); // las viñetas pegadas a la frase que las presenta
+            return s;
+        }
+
+        static Dictionary<string, object> Dict(Dictionary<string, object> d, string k)
+        {
+            object o; return d != null && d.TryGetValue(k, out o) ? o as Dictionary<string, object> : null;
+        }
+
         static string S(Dictionary<string, object> d, string k)
         {
             object o; return d.TryGetValue(k, out o) && o != null ? o.ToString() : "";
@@ -401,6 +443,9 @@ Puerto=8765
             var addons = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "addons.json", "https://dbd.tricky.lol/api/addons?role=killer"));
             Dictionary<string, object> addonsEs = null;
             try { addonsEs = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "addons_es.json", "https://dbd.tricky.lol/api/addons?role=killer&locale=es")); }
+            catch { }
+            Dictionary<string, object> perksEs = null;
+            try { perksEs = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "perks_es.json", "https://dbd.tricky.lol/api/perks?role=killer&locale=es")); }
             catch { }
             var perkIcons = KeyMap(WikiList(dir, "wiki_perks.txt", "IconPerks_"));
             var addonIcons = KeyMap(WikiList(dir, "wiki_addons.txt", "IconAddon_"));
@@ -437,6 +482,9 @@ Puerto=8765
                     if (n.Contains(al[0])) for (int i = 1; i < al.Length; i++) e.AddKey(al[i]);
                 string bare = Regex.Replace(name, @"^(Hex|Scourge Hook|Boon|Invocation):\s*", "");
                 e.Icon = FindIcon(perkIcons, Txt.FileKey(name), Txt.FileKey(Txt.Norm(name)), Txt.FileKey(bare), Txt.FileKey(S(d, "image").Split('/').Last()), "hex" + Txt.FileKey(bare));
+                var pe = Dict(perksEs, kv.Key);
+                if (pe != null) { e.NameEs = WebUtility.HtmlDecode(S(pe, "name")); e.Info = NiceDesc(S(pe, "description"), Dict(pe, "tunables") ?? Dict(d, "tunables")); }
+                else e.Info = NiceDesc(S(d, "description"), Dict(d, "tunables"));
                 c.Perks.Add(e);
             }
             foreach (var kv in addons)
@@ -458,8 +506,13 @@ Puerto=8765
                     string nameEs = WebUtility.HtmlDecode(S(de, "name"));
                     e.AddKey(nameEs);
                     foreach (var t in Txt.Tokens(nameEs + " " + StripHtml(S(de, "description")))) e.Desc.Add(t);
+                    e.NameEs = nameEs; e.Info = NiceDesc(S(de, "description"), null);
                 }
-                else foreach (var t in Txt.Tokens(StripHtml(S(d, "description")))) e.Desc.Add(t);
+                else
+                {
+                    foreach (var t in Txt.Tokens(StripHtml(S(d, "description")))) e.Desc.Add(t);
+                    e.Info = NiceDesc(S(d, "description"), null);
+                }
                 c.Addons.Add(e);
             }
             // ofrendas que puede quemar el killer (las de killer y las compartidas; sin las retiradas)
@@ -485,12 +538,14 @@ Puerto=8765
                                       Txt.FileKey(Regex.Replace(S(d, "image").Split('/').Last(), "^icons?Favors_", "", RegexOptions.IgnoreCase)));
                     object eso;
                     string desc = StripHtml(S(d, "description"));
+                    e.Info = NiceDesc(S(d, "description"), null);
                     if (offsEs != null && offsEs.TryGetValue(kv.Key, out eso) && eso is Dictionary<string, object>)
                     {
                         var de = (Dictionary<string, object>)eso;
                         string nameEs = WebUtility.HtmlDecode(S(de, "name"));
                         e.AddKey(nameEs);
                         desc = nameEs + " " + StripHtml(S(de, "description"));
+                        e.NameEs = nameEs; e.Info = NiceDesc(S(de, "description"), null);
                     }
                     foreach (var t in Txt.Tokens(desc)) e.Desc.Add(t);
                     c.Offerings.Add(e);
@@ -499,7 +554,8 @@ Puerto=8765
             catch { } // sin ofrendas la app funciona igual
 
             // ofrenda secreta: el juego muestra el dorso de la carta (no se sabe cual es)
-            var secret = new Entry { K = Kind.Offering, Name = "Ofrenda secreta", Killer = "", Rarity = "secreta", Icon = "OfferingsBack.png" };
+            var secret = new Entry { K = Kind.Offering, Name = "Ofrenda secreta", Killer = "", Rarity = "secreta", Icon = "OfferingsBack.png",
+                                     Info = "El killer quemó una ofrenda oculta: no se sabe cuál es hasta que se revela." };
             foreach (var k in new[] { "ofrenda secreta", "secreta", "secreto", "secret", "secret offering", "oculta", "escondida", "desconocida", "no se cual" })
                 secret.AddKey(k);
             c.Offerings.Add(secret);
@@ -1973,7 +2029,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 8;
+        public const int AppVersion = 9;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2249,6 +2305,11 @@ Puerto=8765
             topTimer.Tick += (s, e) => { SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); };
             topTimer.Start();
 
+            // descripcion al pasar el mouse (solo cuando el cursor esta visible: lobby, menu de ESC, fin de partida)
+            hoverTimer = new System.Windows.Forms.Timer { Interval = 100 };
+            hoverTimer.Tick += (s, e) => HoverTick();
+            hoverTimer.Start();
+
             // actualizaciones: al abrir y cada 1 hora
             if (!Preview)
             {
@@ -2438,6 +2499,92 @@ Puerto=8765
             }
             if (File.Exists(dest)) File.Delete(dest);
             File.Move(part, dest);
+        }
+
+        // ---- hover: descripcion del perk/addon/ofrenda bajo el cursor
+        [DllImport("user32.dll")] static extern bool GetCursorInfo(ref CURSORINFO ci);
+        [StructLayout(LayoutKind.Sequential)] struct CURSORINFO { public int cbSize, flags; public IntPtr hCursor; public int x, y; }
+        System.Windows.Forms.Timer hoverTimer;
+        HoverTip tip;
+        Entry hoverE;
+        int hoverSince;
+
+        void HoverTick()
+        {
+            Entry over = null; Rectangle rr = Rectangle.Empty;
+            var ci = new CURSORINFO { cbSize = Marshal.SizeOf(typeof(CURSORINFO)) };
+            // en partida DBD esconde el cursor: ahi no se muestra nada
+            if (Visible && !helpShown && GetCursorInfo(ref ci) && (ci.flags & 1) != 0)
+            {
+                var p = new Point(ci.x - Left, ci.y - Top);
+                foreach (var it in items)
+                    if (it.E != null && !string.IsNullOrEmpty(it.E.Info) && it.R.Contains(p)) { over = it.E; rr = it.R; }
+            }
+            if (over != hoverE) { hoverE = over; hoverSince = Environment.TickCount; if (over == null && tip != null) tip.Hide(); return; }
+            if (over == null || Environment.TickCount - hoverSince < 250) return;
+            if (tip != null && tip.Visible && tip.Current == over) return;
+            if (tip == null) tip = new HoverTip(new Font("Segoe UI", fItem.Size, FontStyle.Bold), fSmall);
+            string title = over.Name + (!string.IsNullOrEmpty(over.NameEs) && Txt.Norm(over.NameEs) != Txt.Norm(over.Name) ? "  ·  " + over.NameEs : "");
+            string sub = over.K == Kind.Perk ? "Perk" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "")
+                       : over.K == Kind.Offering ? "Ofrenda" : "Addon" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "");
+            if (st.IsDoubt(over)) sub += " · sospecha (sin confirmar)";
+            Color tc = over.K == Kind.Perk ? Color.WhiteSmoke : RarityColor(over.Rarity);
+            var anchor = new Rectangle(Left + rr.X, Top + rr.Y, rr.Width, rr.Height);
+            bool right = !cfg.Get("Posicion", "arriba-derecha").ToLowerInvariant().Contains("izq");
+            tip.ShowFor(over, title, tc, sub, over.Info, anchor, Bounds, right);
+        }
+
+        class HoverTip : Form
+        {
+            public Entry Current;
+            string title = "", sub = "", body = "";
+            Color tc;
+            readonly Font ft, fb, fs;
+            const int Pad = 10, MaxW = 400;
+            const TextFormatFlags Wrap = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+
+            public HoverTip(Font title, Font body)
+            {
+                ft = title; fb = body; fs = new Font(body.FontFamily, body.Size * 0.9f, FontStyle.Italic);
+                FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
+                BackColor = Color.FromArgb(18, 18, 24); TopMost = true; DoubleBuffered = true; Opacity = 0.96;
+            }
+            protected override CreateParams CreateParams
+            {
+                get { var cp = base.CreateParams; cp.ExStyle |= 0x20 | 0x80 | 0x8 | 0x08000000; return cp; } // transparente al mouse, sin activar
+            }
+            protected override bool ShowWithoutActivation { get { return true; } }
+
+            public void ShowFor(Entry e, string t, Color c, string s, string b, Rectangle anchor, Rectangle overlay, bool leftOfOverlay)
+            {
+                Current = e; title = t; tc = c; sub = s; body = b;
+                var big = new Size(MaxW, 4000);
+                Size st = TextRenderer.MeasureText(title, ft, big, Wrap), ss = TextRenderer.MeasureText(sub, fs, big, Wrap), sb = TextRenderer.MeasureText(body, fb, big, Wrap);
+                int w = Math.Max(st.Width, Math.Max(ss.Width, sb.Width)) + Pad * 2 + 4;
+                int h = st.Height + ss.Height + sb.Height + Pad * 2 + 10;
+                var scr = Screen.FromRectangle(overlay).WorkingArea;
+                int x = leftOfOverlay ? overlay.Left - w - 8 : overlay.Right + 8;
+                int y = Math.Max(scr.Top, Math.Min(anchor.Top, scr.Bottom - h));
+                x = Math.Max(scr.Left, Math.Min(x, scr.Right - w));
+                Bounds = new Rectangle(x, y, w, h);
+                if (!Visible) Show();
+                Invalidate();
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                using (var pen = new Pen(Color.FromArgb(Math.Min(255, tc.R / 2 + 40), Math.Min(255, tc.G / 2 + 40), Math.Min(255, tc.B / 2 + 40)), 2))
+                    g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
+                int y = Pad, w = Width - Pad * 2;
+                var big = new Size(w, 4000);
+                var r = new Rectangle(Pad, y, w, TextRenderer.MeasureText(title, ft, big, Wrap).Height);
+                TextRenderer.DrawText(g, title, ft, r, tc, Wrap); y = r.Bottom + 2;
+                r = new Rectangle(Pad, y, w, TextRenderer.MeasureText(sub, fs, big, Wrap).Height);
+                TextRenderer.DrawText(g, sub, fs, r, Color.FromArgb(150, 150, 165), Wrap); y = r.Bottom + 8;
+                r = new Rectangle(Pad, y, w, Height - y - Pad);
+                TextRenderer.DrawText(g, body, fb, r, Color.Gainsboro, Wrap);
+            }
         }
 
         // ---- actualizaciones: si hay version nueva firmada, la instala y reinicia (la lista se conserva)

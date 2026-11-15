@@ -1,8 +1,8 @@
 {
-    "version":  8,
-    "notes":  "La ofrenda ya no se superpone con los perks",
-    "date":  "2026-11-15 18:18",
+    "version":  9,
+    "notes":  "Descripcion al pasar el mouse sobre perks, addons y ofrenda",
+    "date":  "2026-11-15 18:26",
     "files":  {
-                  "DbdOverlay.exe":  "b3342d6326cc5fa90bb24ca7073804772ce132a676e193d32b51edb9dcde8038"
+                  "DbdOverlay.exe":  "cfc8b372bfad997b398847e39c400cf2e37c5fb3251fceb7dc9f6563046743fb"
               }
 }
