@@ -1,8 +1,8 @@
 {
-    "version":  14,
-    "notes":  "Nombre del killer mas chico y centrado en su caja",
-    "date":  "2026-11-15 19:04",
+    "version":  15,
+    "notes":  "Addons en las esquinas libres del rombo (mas compacto); escala general del widget",
+    "date":  "2026-11-15 19:08",
     "files":  {
-                  "DbdOverlay.exe":  "e9b3130661280df456044a64396411499a64b28eb0f287591724def1420b53a9"
+                  "DbdOverlay.exe":  "7f61fc885ffaa8084aa963823871286e3c18390eaed066cc8f8a0e3fe1611978"
               }
 }

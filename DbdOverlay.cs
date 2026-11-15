@@ -2176,7 +2176,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 14;
+        public const int AppVersion = 15;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2405,10 +2405,7 @@ Puerto=8765
             TransparencyKey = KeyColor;
             Opacity = cfg.GetD("Opacidad", 0.85);
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
-            float fs = cfg.GetInt("TamanoLetra", 14);
-            fTitle = new Font("Segoe UI Semibold", fs);
-            fItem = new Font("Segoe UI", fs);
-            fSmall = new Font("Segoe UI", fs * 0.78f);
+            MakeFonts();
 
             vkTalk = Vk(cfg.Get("Tecla", "Alt"));
             if (vkTalk == 0) vkTalk = (int)Keys.Menu;
@@ -2655,8 +2652,8 @@ Puerto=8765
         Font killerFont;
         Font KillerFont()
         {
-            int sz = Math.Max(7, cfg.GetInt("TamanoKiller", 10));
-            if (killerFont == null || (int)killerFont.Size != sz) killerFont = new Font("Segoe UI", sz, FontStyle.Bold);
+            float sz = Math.Max(5f, cfg.GetInt("TamanoKiller", 10) * UiScale);
+            if (killerFont == null || Math.Abs(killerFont.Size - sz) > 0.01f) killerFont = new Font("Segoe UI", sz, FontStyle.Bold);
             return killerFont;
         }
 
@@ -3316,6 +3313,22 @@ Puerto=8765
             }
             sizeMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in sizeMenu.DropDownItems) o.Checked = (int)o.Tag == PerkSize; };
             menu.Items.Add(sizeMenu);
+            // escala de todo el widget (iconos, letras y nombre del killer a la vez)
+            var scaleMenu = new ToolStripMenuItem("Escala general");
+            foreach (int pc in new[] { 50, 60, 75, 90, 100, 115, 130, 150, 175, 200 })
+            {
+                var it = new ToolStripMenuItem(pc + " %") { Tag = pc };
+                it.Click += (s, e) =>
+                {
+                    SetCfg("Escala", ((int)((ToolStripMenuItem)s).Tag).ToString());
+                    MakeFonts();
+                    Relayout();
+                    Feedback("escala: " + ((ToolStripMenuItem)s).Text, Color.Silver, 3000);
+                };
+                scaleMenu.DropDownItems.Add(it);
+            }
+            scaleMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in scaleMenu.DropDownItems) o.Checked = (int)o.Tag == cfg.GetInt("Escala", 100); };
+            menu.Items.Add(scaleMenu);
             menu.Items.Add(KillerMenu());
             var langMenu = new ToolStripMenuItem("Idioma");
             langMenu.DropDownItems.Add(LangMenu("Nombres", "IdiomaNombres", "en"));
@@ -3600,7 +3613,19 @@ Puerto=8765
         List<Item> items = new List<Item>();
         List<TextItem> texts = new List<TextItem>();
         bool showNames;
-        int PerkSize { get { return Math.Max(24, cfg.GetInt("TamanoPerk", 48)); } }
+        // escala general del widget (iconos, letras, killer): Escala=100 es el tamano normal
+        float UiScale { get { return Math.Max(30, Math.Min(300, cfg.GetInt("Escala", 100))) / 100f; } }
+        int PerkSize { get { return Math.Max(16, (int)(Math.Max(24, cfg.GetInt("TamanoPerk", 48)) * UiScale)); } }
+
+        void MakeFonts()
+        {
+            float fs = Math.Max(6f, cfg.GetInt("TamanoLetra", 14) * UiScale);
+            fTitle = new Font("Segoe UI Semibold", fs);
+            fItem = new Font("Segoe UI", fs);
+            fSmall = new Font("Segoe UI", fs * 0.78f);
+            killerFont = null;
+            if (tip != null) { tip.Hide(); tip = null; hoverE = null; }
+        }
 
         void SetNames(bool v)
         {
@@ -3658,9 +3683,8 @@ Puerto=8765
                 foreach (var nl in nameLines) namesW = Math.Max(namesW, Math.Min(M(nl.Item1, fSmall).Width, 340));
                 int namesH = nameLines.Count * lh;
                 var realAddons = st.Addons.Where(a => a.Rarity != "nota").ToList();
-                int addonsH = realAddons.Count > 0 ? realAddons.Count * (A + 4) - 4 : 0;
                 int clusterW = 2 * o + D;
-                int blockH = Math.Max(clusterW, Math.Max(namesH, addonsH));
+                int blockH = Math.Max(clusterW, namesH);
 
                 int x = pad;
                 int ny = top + (blockH - namesH) / 2;
@@ -3671,11 +3695,15 @@ Puerto=8765
                 }
                 if (nameLines.Count > 0) x += namesW + 10;
 
-                int ay = top + (blockH - addonsH) / 2;
-                foreach (var a in realAddons) { items.Add(new Item { R = new Rectangle(x, ay, A, A), E = a }); ay += A + 4; }
-                if (realAddons.Count > 0) x += A + 6;
-
                 int ccx = x + clusterW / 2, ccy = top + blockH / 2;
+                // addons en las esquinas libres de la izquierda del rombo: el hueco es un triangulo con catetos D,
+                // entra un cuadrado de lado D/2 (el primero arriba, el segundo abajo)
+                int aS = (D + 2) / 2 - 2;
+                for (int i = 0; i < realAddons.Count && i < 2; i++)
+                {
+                    int ay = i == 0 ? ccy - clusterW / 2 : ccy + clusterW / 2 - aS;
+                    items.Add(new Item { R = new Rectangle(x, ay, aS, aS), E = realAddons[i] });
+                }
                 // la ofrenda va en la esquina libre de arriba a la derecha del rombo (se dibuja antes: si se toca con un perk, el perk queda encima)
                 if (st.Offering != null && st.Offering.Rarity != "nota")
                 {
