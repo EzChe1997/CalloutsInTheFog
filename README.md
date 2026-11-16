@@ -5,7 +5,15 @@ y quedan en pantalla con sus íconos. La lista se comparte sola con los amigos d
 
 - No lee la memoria del juego: todo lo que aparece lo anota alguien por voz.
 - Voz con [whisper.cpp](https://github.com/ggerganov/whisper.cpp), local y sin internet.
-- Datos de perks/addons/ofrendas: [dbd.tricky.lol](https://dbd.tricky.lol) e íconos de la wiki.
+- Datos de perks/addons/ofrendas: [dbd.tricky.lol](https://dbd.tricky.lol) e íconos de la [wiki de DBD](https://deadbydaylight.wiki.gg).
+
+## Créditos
+
+- Planos de mapas con el sistema de reloj: imágenes de **Lethia**, de la página de callouts de
+  [hens333.com](https://hens333.com/callouts) (versión de Zexov sobre la original de Broosley y Evo, del Discord de Hens).
+  La app las baja de esa página cuando elegís un mapa; no se incluyen en este repositorio.
+- Datos del juego: [dbd.tricky.lol](https://dbd.tricky.lol). Íconos: [wiki de DBD](https://deadbydaylight.wiki.gg).
+- Voz: [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
 
 ## Instalar
 

@@ -22,13 +22,21 @@ DBD Overlay - perks y addons del killer en pantalla
    Sin Whisper la app funciona igual en modo "solo ver".
 
 5) En partida:
-   - Mantener V y hablar: "tiene Pain Resonance y Deadlock", "es la Huntress", "addon que ciega"...
-   - Mantener H: ayuda con todos los comandos.
-   - Mantener G 1 segundo: borrar todo (se borra para todo el grupo).
+   - Shift+T: escribir lo que viste (perk, addon, ofrenda, killer o mapa) y elegirlo de la lista.
+   - Mantener Shift+V y hablar (si tenés la voz): "tiene Pain Resonance y Deadlock", "es la Huntress"...
+   - Mantener Shift+H: ayuda con todos los comandos.
+   - Mantener Shift+G 1 segundo: borrar todo (se borra para todo el grupo).
+   (Las teclas se cambian en ícono "D" -> Teclas.)
 
 Configuración (teclas, micrófono, posición, tamaño): ícono "D" -> "Abrir configuración".
 Overlay: el juego tiene que estar en "Pantalla completa en ventana" (Windowed Fullscreen / Borderless)
 para que se vea encima.
 
-Actualizaciones: la app se actualiza sola (revisa al abrir y cada 1 hora) y se reinicia
-sin perder la lista. Solo acepta versiones firmadas por quien publica el proyecto.
+Actualizaciones: la app se actualiza sola (revisa al abrir, o con ícono "D" -> "Buscar actualización")
+y se reinicia sin perder la lista. Solo acepta versiones firmadas por quien publica el proyecto.
+
+Créditos:
+   - Planos de mapas (sistema de reloj): imágenes de Lethia, de hens333.com/callouts
+     (versión de Zexov sobre la original de Broosley y Evo, del Discord de Hens).
+   - Datos del juego: dbd.tricky.lol · Íconos: wiki de DBD (deadbydaylight.wiki.gg).
+   - Voz: whisper.cpp.

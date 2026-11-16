@@ -304,6 +304,8 @@ Puerto=8765
     class Catalog
     {
         public List<Entry> Killers = new List<Entry>(), Perks = new List<Entry>(), Addons = new List<Entry>(), Offerings = new List<Entry>();
+        public List<Entry> Maps = new List<Entry>();                                   // mapas (solo para elegir y ver el plano)
+        public Dictionary<string, List<string>> MapFiles = new Dictionary<string, List<string>>(); // mapa -> plano(s) de la wiki
         public string Info = "";
 
         static readonly string[][] KillerAliases = {
@@ -338,7 +340,7 @@ Puerto=8765
         };
 
         // ---- datos al dia: al abrir se mira /api/versions (menos de 1 KB) y solo se baja lo que cambio desde la ultima vez
-        static readonly string[] Datasets = { "characters", "perks", "addons", "offerings" };
+        static readonly string[] Datasets = { "characters", "perks", "addons", "offerings", "maps" };
         static Dictionary<string, string> remoteVer, localVer;
         static bool fetchFailed;
         public static string GameVersion = "", DataNews = "";
@@ -426,6 +428,39 @@ Puerto=8765
         }
 
         // lista de imagenes de la wiki (IconPerks_*, IconAddon_*), cacheada una semana
+        // lista de mapas de hens333.com/callouts: la pagina guarda la lista en sus archivos .js
+        // ({realm:"…",names:["…"],image:"Carpeta/Mapa.webp"}). Se guarda en hens_mapas.txt: "nombres|…<tab>imagen<tab>reino".
+        public const string HensBase = "https://hens333.com/";
+        static List<string> HensMapList(string dir)
+        {
+            string path = Path.Combine(dir, "hens_mapas.txt");
+            bool stale = !File.Exists(path) || (remoteVer != null ? Changed("maps") : (DateTime.Now - File.GetLastWriteTime(path)).TotalDays > 7);
+            if (stale)
+            {
+                try
+                {
+                    string html = Encoding.UTF8.GetString(HttpBytes(HensBase + "callouts"));
+                    var byImage = new Dictionary<string, string[]>(); // imagen -> { nombres, reino }
+                    var order = new List<string>();
+                    foreach (Match jm in Regex.Matches(html, @"_app/immutable/nodes/[A-Za-z0-9_.-]+\.js"))
+                    {
+                        string js = Encoding.UTF8.GetString(HttpBytes(HensBase + jm.Value));
+                        foreach (Match m in Regex.Matches(js, @"\{(?:realm:""([^""]*)"",)?names:\[([^\]]*)\],image:""([^""]+)""\}"))
+                        {
+                            string img = m.Groups[3].Value, realm = m.Groups[1].Value;
+                            var names = Regex.Matches(m.Groups[2].Value, @"""([^""]*)""").Cast<Match>().Select(x => x.Groups[1].Value).ToArray();
+                            string[] cur;
+                            if (!byImage.TryGetValue(img, out cur)) { byImage[img] = new[] { string.Join("|", names), realm }; order.Add(img); }
+                            else if (cur[1].Length == 0 && realm.Length > 0) cur[1] = realm;
+                        }
+                    }
+                    if (order.Count > 0) File.WriteAllLines(path, order.Select(i => byImage[i][0] + "\t" + i + "\t" + byImage[i][1]), Encoding.UTF8);
+                }
+                catch { }
+            }
+            return File.Exists(path) ? File.ReadAllLines(path, Encoding.UTF8).ToList() : new List<string>();
+        }
+
         static List<string> WikiList(string dir, string file, string prefix)
         {
             string path = Path.Combine(dir, file);
@@ -692,6 +727,26 @@ Puerto=8765
             foreach (var k in new[] { "ofrenda secreta", "secreta", "secreto", "secret", "secret offering", "oculta", "escondida", "desconocida", "no se cual" })
                 secret.AddKey(k);
             c.Offerings.Add(secret);
+
+            // mapas: los de hens333.com/callouts (imagenes con el sistema de reloj, hechas por Lethia). La lista se trae
+            // de esa pagina solo si no esta guardada o si salio un parche con cambios de mapas; la imagen se baja al elegir el mapa.
+            try
+            {
+                foreach (var line in HensMapList(dir))
+                {
+                    var f = line.Split('\t');
+                    if (f.Length < 3) continue;
+                    var names = f[0].Split('|').Where(x => x.Trim().Length > 0).ToList();
+                    if (names.Count == 0 || c.MapFiles.ContainsKey(names[0])) continue;
+                    var e = new Entry { K = Kind.Offering, Name = names[0], Killer = "", Action = "mapa:" + names[0], ActionTag = f[2] };
+                    foreach (var nm in names) { e.AddKey(nm); if (f[2].Length > 0) e.AddKey(f[2] + " " + nm); e.AddKey(Regex.Replace(nm, @"^The\s+", "")); }
+                    if (names[0].StartsWith("Police Station")) { e.AddKey("rpd"); e.AddKey("comisaria"); e.AddKey("raccoon city " + names[0]); }
+                    if (names[0].StartsWith("Preschool")) foreach (var nm in names) { e.AddKey("badham " + nm); e.AddKey("badham " + Regex.Replace(nm, @"^Preschools*", "")); }
+                    c.Maps.Add(e);
+                    c.MapFiles[names[0]] = new List<string> { f[1] };
+                }
+            }
+            catch { } // sin mapas la app funciona igual
 
             c.Info = c.Killers.Count + " killers, " + c.Perks.Count + " perks, " + c.Addons.Count + " addons, " + c.Offerings.Count + " ofrendas, iconos: " +
                      c.Perks.Count(x => x.Icon != null) + " perks / " + c.Addons.Count(x => x.Icon != null) + " addons / " + c.Offerings.Count(x => x.Icon != null) + " ofrendas";
@@ -2388,7 +2443,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 37;
+        public const int AppVersion = 38;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2513,7 +2568,73 @@ Puerto=8765
         int port, vkTalk, vkClear, vkNames, vkHelp;
         bool talkShift, talkCtrl, talkAlt;
         bool helpShown;
-        string HelpKeyName { get { return cfg.Get("TeclaAyuda", "Shift+H"); } }
+        // ---- historial de lo visto (vistos.txt, solo en esta PC): al borrar la lista se guarda killer + perks.
+        // Las ultimas 300 partidas: se adapta solo al meta y a los parches (lo viejo se va yendo).
+        string SeenPath { get { return Path.Combine(dir, "vistos.txt"); } }
+        bool recordedLast;
+        void RecordMatch()
+        {
+            recordedLast = false;
+            if (st.Perks.Count == 0) return;
+            try
+            {
+                string line = DateTime.UtcNow.ToString("yyyy-MM-dd") + "\t" + (st.Killer != null ? st.Killer.Name : "") + "\t" +
+                              string.Join("|", st.Perks.Select(p => (st.IsDoubt(p) ? "?" : "") + p.Name));
+                var lines = File.Exists(SeenPath) ? File.ReadAllLines(SeenPath, Encoding.UTF8).ToList() : new List<string>();
+                lines.Add(line);
+                if (lines.Count > 300) lines = lines.Skip(lines.Count - 300).ToList();
+                File.WriteAllLines(SeenPath, lines, Encoding.UTF8);
+                recordedLast = true;
+            }
+            catch { }
+        }
+        void UnrecordLast()
+        {
+            if (!recordedLast) return;
+            recordedLast = false;
+            try { var l = File.ReadAllLines(SeenPath, Encoding.UTF8).ToList(); if (l.Count > 0) { l.RemoveAt(l.Count - 1); File.WriteAllLines(SeenPath, l, Encoding.UTF8); } } catch { }
+        }
+
+        // cuadro vacio: perks vistos contra este killer, despues los mas vistos en general, despues los propios del killer
+        public List<Entry> QuickPicks(out string title)
+        {
+            var k = st.Killer;
+            title = k != null ? "Lo más visto contra " + DName(k) : "Lo más visto últimamente";
+            var score = new Dictionary<Entry, double>();
+            try
+            {
+                if (File.Exists(SeenPath))
+                {
+                    var lines = File.ReadAllLines(SeenPath, Encoding.UTF8);
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        var f = lines[i].Split('\t');
+                        if (f.Length < 3) continue;
+                        double w = 1 + (double)i / lines.Length; // lo reciente pesa mas
+                        if (k != null && f[1] == k.Name) w *= 4;  // contra el mismo killer, mucho mas
+                        foreach (var raw in f[2].Split('|'))
+                        {
+                            bool doubt = raw.StartsWith("?");
+                            string nm = doubt ? raw.Substring(1) : raw;
+                            var e = cat.Perks.FirstOrDefault(x => x.Name == nm);
+                            if (e == null) continue;
+                            double v; score.TryGetValue(e, out v);
+                            score[e] = v + (doubt ? w / 2 : w);
+                        }
+                    }
+                }
+            }
+            catch { }
+            var res = score.Where(x => !st.Perks.Contains(x.Key)).OrderByDescending(x => x.Value).Select(x => x.Key).Take(10).ToList();
+            if (k != null)
+                foreach (var own in cat.Perks.Where(x => x.Owner == k.Name).OrderBy(x => DName(x)))
+                    if (!res.Contains(own) && !st.Perks.Contains(own)) res.Add(own);
+            if (score.Count == 0 && k != null) title = "Perks de " + DName(k);
+            return res;
+        }
+
+        public string HelpKeyName { get { return cfg.Get("TeclaAyuda", "Shift+H"); } }
+        string TypeKeyText { get { return cfg.Get("TeclaEscribir", "Shift+T"); } }
 
         // texto, color, es titulo
         List<Tuple<string, Color, bool>> HelpLines()
@@ -2563,6 +2684,159 @@ Puerto=8765
         readonly Dictionary<string, Image> iconCache = new Dictionary<string, Image>();
         readonly HashSet<string> iconPending = new HashSet<string>();
         int IconSize { get { return (int)(fItem.Height * 1.75); } }
+
+        // ---- plano del mapa (arriba a la izquierda): se elige escribiendo el nombre del mapa en el cuadro.
+        // Se va cuando se borra la lista (partida nueva) o con "mapa" -> "Ocultar mapa". Se comparte con la sala.
+        MapWindow mapWin;
+        string mapShown;
+
+        public void ShowMap(string name, bool share)
+        {
+            List<string> files;
+            if (!cat.MapFiles.TryGetValue(name, out files)) return;
+            if (mapWin == null) mapWin = new MapWindow(this);
+            mapShown = name;
+            var e = cat.Maps.FirstOrDefault(m => m.Name == name);
+            mapWin.Set(name, e != null ? e.ActionTag : "", files, MapSize);
+            mapWin.Place(cfg.GetInt("MapaX", 20), cfg.GetInt("MapaY", 20));
+            mapWin.Opacity = MapOpacity / 100.0;
+            if (!mapWin.Visible) mapWin.Show();
+            SetWindowPos(mapWin.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040);
+            mapWin.Invalidate();
+            DebugEvent("mapa: " + name);
+            if (share && room != null) room.Publish(Stamp(new Dictionary<string, object> { { "map", name } }));
+        }
+
+        static readonly Tuple<string, int>[] MapSizes = { Tuple.Create("Chico", 160), Tuple.Create("Normal", 220), Tuple.Create("Grande", 280), Tuple.Create("Muy grande", 360), Tuple.Create("Enorme", 460) };
+        int MapSize { get { return cfg.GetInt("TamanoMapa", 220); } }
+        public void SetMapSize(int px)
+        {
+            px = Math.Max(160, Math.Min(900, px));
+            SetCfg("TamanoMapa", px.ToString());
+            if (mapShown != null) ShowMap(mapShown, false);
+            Feedback("tamaño del mapa: " + px + " px", Color.Silver, 3000);
+        }
+        // un paso mas grande / mas chico (desde el cuadro de escribir)
+        public void StepMapSize(int dir)
+        {
+            int cur = MapSize;
+            var next = dir > 0 ? MapSizes.Where(x => x.Item2 > cur).Select(x => x.Item2).DefaultIfEmpty(MapSizes.Last().Item2).First()
+                               : MapSizes.Where(x => x.Item2 < cur).Select(x => x.Item2).DefaultIfEmpty(MapSizes[0].Item2).Last();
+            SetMapSize(next);
+        }
+
+        static readonly int[] MapOpacities = { 30, 45, 60, 75, 90, 100 };
+        int MapOpacity { get { return Math.Max(15, Math.Min(100, cfg.GetInt("OpacidadMapa", 90))); } }
+        public void SetMapOpacity(int pc)
+        {
+            pc = Math.Max(15, Math.Min(100, pc));
+            SetCfg("OpacidadMapa", pc.ToString());
+            if (mapWin != null) mapWin.Opacity = pc / 100.0;
+            Feedback("opacidad del mapa: " + pc + " %", Color.Silver, 3000);
+        }
+        public void StepMapOpacity(int dir)
+        {
+            int cur = MapOpacity;
+            SetMapOpacity(dir > 0 ? MapOpacities.Where(x => x > cur).DefaultIfEmpty(MapOpacities.Last()).First()
+                                  : MapOpacities.Where(x => x < cur).DefaultIfEmpty(MapOpacities[0]).Last());
+        }
+
+        public void HideMap(bool share)
+        {
+            if (mapShown == null) return;
+            mapShown = null;
+            if (mapWin != null) mapWin.Hide();
+            if (share && room != null) room.Publish(Stamp(new Dictionary<string, object> { { "map", "" } }));
+        }
+
+        class MapWindow : Form
+        {
+            readonly Overlay ov;
+            string title = "", sub = "";
+            List<string> files = new List<string>();
+            int side = 320, px, py;
+            public MapWindow(Overlay o)
+            {
+                ov = o;
+                FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
+                StartPosition = FormStartPosition.Manual; BackColor = Color.FromArgb(14, 14, 18);
+                DoubleBuffered = true; Opacity = 0.9;
+            }
+            protected override bool ShowWithoutActivation { get { return true; } }
+            protected override CreateParams CreateParams
+            {
+                get { var cp = base.CreateParams; cp.ExStyle |= 0x80000 | 0x20 | 0x80 | 0x8 | 0x08000000; return cp; } // en capas, el mouse lo atraviesa, sin foco
+            }
+            public void Set(string t, string s, List<string> f, int size) { title = t; sub = s; files = f; side = Math.Max(160, Math.Min(900, size)); }
+            public void Place(int x, int y) { px = x; py = y; Fit(); }
+            // alto segun la imagen (las de hens no son cuadradas)
+            public void Fit()
+            {
+                var img = files.Count > 0 ? ov.MapImage(files[0]) : null;
+                int h = img != null ? side * img.Height / Math.Max(1, img.Width) : side;
+                var scr = Screen.PrimaryScreen.Bounds;
+                Bounds = new Rectangle(scr.Left + px, scr.Top + py, side + 12, h + 12);
+            }
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                var img = files.Count > 0 ? ov.MapImage(files[0]) : null;
+                var r = new Rectangle(6, 6, side, Height - 12);
+                if (img != null) g.DrawImage(img, r);
+                else using (var fs = new Font("Segoe UI", 9f))
+                    TextRenderer.DrawText(g, ov.MapError != null ? "No pude bajar el plano de " + title + "\n(" + ov.MapError + ")" : "cargando " + title + "…", fs, r, Color.FromArgb(160, 160, 175), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+                using (var pen = new Pen(Color.FromArgb(70, 70, 90))) g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            }
+        }
+
+        // imagen del mapa (hens333.com, formato WebP): se baja una vez, se pasa a PNG (Windows abre WebP con su
+        // decodificador) achicada a 900 px de ancho y queda guardada en "mapas".
+        readonly Dictionary<string, Image> mapCache = new Dictionary<string, Image>();
+        readonly HashSet<string> mapPending = new HashSet<string>();
+        public string MapError;
+        public Image MapImage(string file)
+        {
+            Image img;
+            if (mapCache.TryGetValue(file, out img)) return img;
+            string folder = Path.Combine(dir, "mapas"), path = Path.Combine(folder, Regex.Replace(file, @"[^A-Za-z0-9]+", "_") + ".png");
+            if (File.Exists(path))
+            {
+                try { using (var fs = File.OpenRead(path)) using (var tmp = Image.FromStream(fs)) img = new Bitmap(tmp); mapCache[file] = img; return img; }
+                catch { try { File.Delete(path); } catch { } }
+            }
+            if (mapPending.Add(file))
+            {
+                MapError = null;
+                new Thread(() =>
+                {
+                    string err = null;
+                    try
+                    {
+                        Directory.CreateDirectory(folder);
+                        string url = Catalog.HensBase + "img/dbd/callouts/" + string.Join("/", file.Split('/').Select(Uri.EscapeDataString));
+                        var data = Catalog.HttpBytes(url);
+                        using (var ms = new MemoryStream(data))
+                        {
+                            var dec = System.Windows.Media.Imaging.BitmapDecoder.Create(ms, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                            System.Windows.Media.Imaging.BitmapSource src = dec.Frames[0];
+                            if (src.PixelWidth > 900) src = new System.Windows.Media.Imaging.TransformedBitmap(src, new System.Windows.Media.ScaleTransform(900.0 / src.PixelWidth, 900.0 / src.PixelWidth));
+                            var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(src));
+                            using (var o = File.Create(path)) enc.Save(o);
+                        }
+                    }
+                    catch (Exception ex) { err = ex.Message; }
+                    BeginInvoke((Action)(() =>
+                    {
+                        mapPending.Remove(file);
+                        if (err != null) { MapError = err; DebugEvent("mapa: no pude bajar " + file + " (" + err + ")"); }
+                        if (mapWin != null && mapWin.Visible) { mapWin.Fit(); mapWin.Invalidate(); }
+                    }));
+                }) { IsBackground = true }.Start();
+            }
+            return null;
+        }
 
         Image GetIcon(string file)
         {
@@ -3667,6 +3941,19 @@ Puerto=8765
         {
             string n = Txt.Norm(q);
             if (n.Length == 0) return new List<Entry>();
+            var mm = Regex.Match(n, @"^(?:mapa|mapas|map|maps)\b\s*(.*)$");
+            if (mm.Success)
+            {
+                string mr = mm.Groups[1].Value.Trim();
+                var ml = new List<Entry>();
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "ocultar", "sacar", "cerrar", "quitar", "hide"))) ml.Add(new Entry { K = Kind.Offering, Name = "Ocultar mapa", Action = "mapa-ocultar", ActionTag = mapShown });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "grande", "agrandar", "mas", "zoom", "tamano"))) ml.Add(new Entry { K = Kind.Offering, Name = "Mapa más grande", Action = "mapa-mas", ActionTag = MapSize + " px" });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "chico", "achicar", "menos", "pequeno", "tamano"))) ml.Add(new Entry { K = Kind.Offering, Name = "Mapa más chico", Action = "mapa-menos", ActionTag = MapSize + " px" });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "transparente", "opacidad", "clarito", "invisible"))) ml.Add(new Entry { K = Kind.Offering, Name = "Mapa más transparente", Action = "mapa-transp", ActionTag = MapOpacity + " %" });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "opaco", "solido", "opacidad", "visible"))) ml.Add(new Entry { K = Kind.Offering, Name = "Mapa más opaco", Action = "mapa-opaco", ActionTag = MapOpacity + " %" });
+                ml.AddRange(cat.Maps.Where(m => mr.Length == 0 || m.Keys.Any(k => k.N.Contains(mr)) || Txt.Norm(m.ActionTag ?? "").Contains(mr)).OrderBy(m => m.Name));
+                return ml;
+            }
             var acts = RoomActions(n);
             if (acts.Count > 0) { var rest0 = SuggestInner(q, n); acts.AddRange(rest0); return acts; }
             return SuggestInner(q, n);
@@ -3700,6 +3987,12 @@ Puerto=8765
         }
         public void DoAction(string a)
         {
+            if (a.StartsWith("mapa:")) { ShowMap(a.Substring(5), true); return; }
+            if (a == "mapa-ocultar") { HideMap(true); return; }
+            if (a == "mapa-mas") { StepMapSize(1); return; }
+            if (a == "mapa-menos") { StepMapSize(-1); return; }
+            if (a == "mapa-transp") { StepMapOpacity(-1); return; }
+            if (a == "mapa-opaco") { StepMapOpacity(1); return; }
             if (a == "salir") { if (ManualRoom) LeaveRoom(); }
             else if (a == "nueva") BoxRoom("sala nueva");
             else if (a.StartsWith("entrar:")) BoxRoom("sala " + a.Substring(7));
@@ -3737,7 +4030,7 @@ Puerto=8765
                 return EffectSearch(cat.Perks, pm.Groups[1].Value.Trim(), l => l.OrderBy(p => p.Owner == kn && kn != null ? 0 : string.IsNullOrEmpty(p.Owner) ? 1 : 2).ThenBy(p => DName(p)));
             }
             var addons = st.Killer != null ? cat.Addons.Where(a => a.Killer == st.Killer.Name) : cat.Addons;
-            var pool = cat.Killers.Concat(cat.Perks).Concat(addons).Concat(cat.Offerings);
+            var pool = cat.Killers.Concat(cat.Perks).Concat(addons).Concat(cat.Offerings).Concat(cat.Maps);
             var res = pool.Select(e =>
             {
                 double s = 0;
@@ -3965,7 +4258,8 @@ Puerto=8765
                 if (ctrl) return;
                 foreach (char c in text) if (!char.IsControl(c)) SetText(tb.Text + c);
             }
-            const string HintText = "Enter: anotar · \"noed?\" o Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\n\"addon\" · \"addon 15 lento\" · \"perk aura gancho\" · \"sala\" · \"quitar …\" · \"cambiar …\" · \"duda …\"";
+            string HintText { get { return "Enter: anotar · \"noed?\" o Shift+Enter: sospecha · ↑↓ elegir · Esc: cerrar" + (ov.HelpKeyName.Length > 0 ? " · " + ov.HelpKeyName + ": ayuda" : "") + "\n" + HintRest; } }
+            const string HintRest = "\"addon\" · \"addon 15 lento\" · \"perk aura gancho\" · \"sala\" · \"quitar …\" · \"cambiar …\" · \"duda …\"";
             public void FocusText() { tb.Focus(); }
             public void SetText(string s) { tb.Text = s; tb.SelectionStart = s.Length; }
 
@@ -3988,6 +4282,12 @@ Puerto=8765
                     sugg = ov.Suggest(tb.Text).Where(x => x.Action != null).ToList();
                     why = ov.BoxRoomHint(tb.Text);
                 }
+                else if (Txt.Norm(tb.Text).Length == 0)
+                {
+                    string qt;
+                    sugg = ov.QuickPicks(out qt);
+                    if (sugg.Count > 0) why = qt + " · ↓ y Enter para anotar (o escribí)";
+                }
                 else
                 {
                     sugg = ov.Suggest(tb.Text);
@@ -4000,13 +4300,13 @@ Puerto=8765
                 confirmKiller = null;
                 lb.Items.Clear();
                 foreach (var e in sugg) lb.Items.Add(e);
-                if (sugg.Count > 0) lb.SelectedIndex = 0;
+                if (sugg.Count > 0 && Txt.Norm(tb.Text).Length > 0) lb.SelectedIndex = 0; // cuadro vacio: nada elegido hasta bajar con flecha
                 byArrows = false;
                 lb.Height = Math.Min(sugg.Count, 10) * lb.ItemHeight; // con mas de 10 aparece la barra para bajar
                 if (sugg.Count > 0) lb.TopIndex = 0;
                 bool noKiller = Regex.IsMatch(Txt.Norm(tb.Text), @"^(?:addons?|add ons?|adon|accesorios?)$") && !ov.HasKiller;
                 hint.Text = noKiller ? "Sin killer anotado: escribí algo de la descripción (\"addon 15 lento\") o anotá el killer primero." : why != null ? why + "\n" + HintText.Split('\n')[0] : HintText;
-                hint.ForeColor = noKiller || why != null ? Color.FromArgb(240, 170, 80) : Color.FromArgb(140, 140, 155);
+                hint.ForeColor = noKiller || (why != null && Txt.Norm(tb.Text).Length > 0) ? Color.FromArgb(240, 170, 80) : why != null ? Color.FromArgb(150, 200, 160) : Color.FromArgb(140, 140, 155);
                 Height = Padding.Vertical + tb.Height + lb.Height + hint.Height + 4;
             }
 
@@ -4025,10 +4325,11 @@ Puerto=8765
                 if (en.Action != null)
                 {
                     var ar = new Rectangle(x, e.Bounds.Y + 4, PillW, e.Bounds.Height - 8);
-                    using (var b = new SolidBrush(Color.FromArgb(30, 110, 70))) e.Graphics.FillRectangle(b, ar);
-                    TextRenderer.DrawText(e.Graphics, "SALA", PillFont, ar, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                    bool isMap = en.Action.StartsWith("mapa");
+                    using (var b = new SolidBrush(isMap ? Color.FromArgb(70, 60, 120) : Color.FromArgb(30, 110, 70))) e.Graphics.FillRectangle(b, ar);
+                    TextRenderer.DrawText(e.Graphics, isMap ? "MAPA" : "SALA", PillFont, ar, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
                     int ax = x + PillW + 8;
-                    TextRenderer.DrawText(e.Graphics, en.Name, lb.Font, new Point(ax, e.Bounds.Y + 3), Color.FromArgb(150, 225, 170), TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(e.Graphics, en.Name, lb.Font, new Point(ax, e.Bounds.Y + 3), isMap ? Color.FromArgb(190, 180, 240) : Color.FromArgb(150, 225, 170), TextFormatFlags.NoPrefix);
                     ax += TextRenderer.MeasureText(en.Name, lb.Font).Width;
                     using (var f = new Font("Segoe UI", 8.5f))
                         TextRenderer.DrawText(e.Graphics, en.ActionTag ?? "", f, new Point(ax + 10, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
@@ -4426,6 +4727,7 @@ Puerto=8765
         Dictionary<string, object> Stamp(Dictionary<string, object> op)
         {
             op["name"] = MyName;
+            if (!op.ContainsKey("t")) op["t"] = UnixNow();
             if (ManualRoom) op["who"] = InstallId;
             if (!ManualRoom && steamMe.Length > 0 && steamLobby.Length > 0) op["h"] = Fingerprint(steamMe);
             return op;
@@ -4444,6 +4746,19 @@ Puerto=8765
             bool mine = (from ?? "").ToString() == r.Me
                      || (steamMe.Length > 0 && steamLobby.Length > 0 && (h ?? "").ToString() == Fingerprint(steamMe))
                      || (MyName.Length > 0 && (name ?? "").ToString() == MyName);
+            object rt0;
+            if (!mine && op.ContainsKey("reset") && op.TryGetValue("t", out rt0) && UnixNow() - Convert.ToInt64(rt0) < 120) { RecordMatch(); HideMap(false); }
+            object mp;
+            if (op.TryGetValue("map", out mp))
+            {
+                // mapa elegido por alguien de la sala (los de hace mas de 10 min, del historial, no)
+                if (!mine && op.TryGetValue("t", out rt0) && UnixNow() - Convert.ToInt64(rt0) < 600)
+                {
+                    string mn = (mp ?? "").ToString();
+                    if (mn.Length == 0) HideMap(false); else { ShowMap(mn, false); Feedback(SenderName(op) + ": mapa " + mn, Color.FromArgb(130, 190, 255), 5000); }
+                }
+                return;
+            }
             string what = st.ApplyRemote(op);
             if (what.Length == 0) return; // ya estaba aplicado (por ejemplo el eco de lo propio)
             st.Save(Path.Combine(dir, "estado.txt"));
@@ -4765,6 +5080,25 @@ Puerto=8765
             }
             sizeMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in sizeMenu.DropDownItems) o.Checked = (int)o.Tag == PerkSize; };
             menu.Items.Add(sizeMenu);
+            // tamaño del plano del mapa
+            var mapSizeMenu = new ToolStripMenuItem("Tamaño del mapa");
+            foreach (var sz in MapSizes)
+            {
+                var it = new ToolStripMenuItem(sz.Item1 + " (" + sz.Item2 + " px)") { Tag = sz.Item2 };
+                it.Click += (s, e) => SetMapSize((int)((ToolStripMenuItem)s).Tag);
+                mapSizeMenu.DropDownItems.Add(it);
+            }
+            mapSizeMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in mapSizeMenu.DropDownItems) o.Checked = (int)o.Tag == MapSize; };
+            menu.Items.Add(mapSizeMenu);
+            var mapOpMenu = new ToolStripMenuItem("Opacidad del mapa");
+            foreach (int pc in MapOpacities)
+            {
+                var it = new ToolStripMenuItem(pc + " %" + (pc == 100 ? " (sin transparencia)" : "")) { Tag = pc };
+                it.Click += (s, e) => SetMapOpacity((int)((ToolStripMenuItem)s).Tag);
+                mapOpMenu.DropDownItems.Add(it);
+            }
+            mapOpMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in mapOpMenu.DropDownItems) o.Checked = (int)o.Tag == MapOpacity; };
+            menu.Items.Add(mapOpMenu);
             // escala de todo el widget (iconos, letras y nombre del killer a la vez)
             var scaleMenu = new ToolStripMenuItem("Escala general");
             foreach (int pc in new[] { 50, 60, 75, 90, 100, 115, 130, 150, 175, 200 })
@@ -4910,6 +5244,7 @@ Puerto=8765
                     var before = st.Snapshot();
                     st.Restore(undoSnap);
                     undoSnap = null;
+                    UnrecordLast();
                     PublishDiff(before);
                     Changed("borrado deshecho");
                     DebugEvent("borrado deshecho con tecla");
@@ -4945,6 +5280,8 @@ Puerto=8765
             undoSnap = st.Snapshot();
             undoUntil = Environment.TickCount + 8000;
             DebugEvent("lista borrada con tecla o menú (antes de borrar)");
+            RecordMatch();
+            HideMap(false); // los demas lo sacan con el borrado de la lista
             st.Clear();
             st.Save(Path.Combine(dir, "estado.txt"));
             PublishReset();
@@ -5254,7 +5591,8 @@ Puerto=8765
             string rl = RoomLine();
             if (rl != null) bottom.Add(Tuple.Create(rl, roomStatus.StartsWith("conectad") || !ManualRoom ? Color.FromArgb(110, 190, 125) : Color.FromArgb(220, 170, 90)));
             if (!any && ktext == null && bottom.Count == 0 && !helpShown)
-                bottom.Add(Tuple.Create((voice ? KeyName + " hablar" : "solo ver") + " · " + HelpKeyName + " ayuda", dim));
+                if (TypeKeyText.Length > 0 || voice)
+                    bottom.Add(Tuple.Create((voice ? KeyName + " hablar" + (TypeKeyText.Length > 0 ? " · " : "") : "") + (TypeKeyText.Length > 0 ? TypeKeyText + " anotar" : ""), dim));
 
             int contentW = blockW;
             // ayuda (mientras se mantiene la tecla de ayuda)

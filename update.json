@@ -1,8 +1,8 @@
 {
-    "version":  37,
-    "notes":  "Sala desde Shift+T (salir/nueva/entrar como opciones), maximo 4 por sala, cerrar la app sale de la sala, icono de sala que se expande con el mouse, Ctrl+V en el cuadro, sin cierre por tiempo del cuadro",
-    "date":  "2026-11-16 18:44",
+    "version":  38,
+    "notes":  "Mapas con callouts de hens333 (tamano y opacidad ajustables, se comparten con la sala), perks sugeridos al abrir el cuadro vacio segun lo visto, atajo Shift+T en pantalla, creditos y LEEME actualizado",
+    "date":  "2026-11-16 19:41",
     "files":  {
-                  "DbdOverlay.exe":  "605f44841dcd818f2b12e2481619f42c6659b0bc2e707a7153cf02d3f872e661"
+                  "DbdOverlay.exe":  "5457ace07173dbf060056a69bfa00dd816bbb8b4a3e97f4b9395a12cadd650e9"
               }
 }
