@@ -1,8 +1,8 @@
 {
-    "version":  22,
-    "notes":  "Descripciones mas legibles: numeros resaltados, unidades cortas, vinetas separadas",
-    "date":  "2026-11-15 21:26",
+    "version":  23,
+    "notes":  "Iconos de perks mas grandes dentro del rombo",
+    "date":  "2026-11-15 21:29",
     "files":  {
-                  "DbdOverlay.exe":  "4d5c2cef6ae3093788651f8c8d7f5ac1eb470752d29fd77198336c6bfc67c4cb"
+                  "DbdOverlay.exe":  "fe490b4e0e186eb5f62640ea770c712629d3880d5be6993819c9e3faac230601"
               }
 }

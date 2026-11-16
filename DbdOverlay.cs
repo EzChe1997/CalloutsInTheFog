@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 22;
+        public const int AppVersion = 23;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -4383,7 +4383,17 @@ Puerto=8765
             if (img != null)
             {
                 var ir = r;
-                if (e.K == Kind.Perk) ir.Inflate(-r.Width / 9, -r.Height / 9); // que el dibujo quede dentro del rombo
+                System.Drawing.Drawing2D.GraphicsPath clip = null;
+                var oldClip = g.Clip;
+                if (e.K == Kind.Perk)
+                {
+                    // el dibujo de la wiki ya trae margen: casi sin achicar, recortado al rombo (sin pisar el borde)
+                    ir.Inflate(-r.Width / 32, -r.Height / 32);
+                    clip = new System.Drawing.Drawing2D.GraphicsPath();
+                    clip.AddPolygon(new[] { new Point(r.X + r.Width / 2, r.Y + 2), new Point(r.Right - 2, r.Y + r.Height / 2),
+                                            new Point(r.X + r.Width / 2, r.Bottom - 2), new Point(r.X + 2, r.Y + r.Height / 2) });
+                    g.SetClip(clip, System.Drawing.Drawing2D.CombineMode.Intersect);
+                }
                 if (!doubt) g.DrawImage(img, ir);
                 else
                 {
@@ -4395,6 +4405,7 @@ Puerto=8765
                         g.DrawImage(img, ir, 0, 0, img.Width, img.Height, GraphicsUnit.Pixel, ia);
                     }
                 }
+                if (clip != null) { g.Clip = oldClip; clip.Dispose(); }
             }
             if (doubt)
             {
