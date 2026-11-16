@@ -1,8 +1,8 @@
 {
-    "version":  19,
-    "notes":  "Ver lo que entiende Whisper; addon mal transcripto (a Don, lado) y addon por color sin decir addon",
-    "date":  "2026-11-15 21:02",
+    "version":  20,
+    "notes":  "Escribir en vez de hablar (tecla T): cuadro con autocompletado",
+    "date":  "2026-11-15 21:07",
     "files":  {
-                  "DbdOverlay.exe":  "c87e3db501d25a1b01bfc7e8d8a76370a15169b841d52c5c8abfafcc545accb6"
+                  "DbdOverlay.exe":  "74f7c2921c25ff4a7b6bd96eea0ea03c6aa04985f10909cef2c8cb5a2e0634f6"
               }
 }

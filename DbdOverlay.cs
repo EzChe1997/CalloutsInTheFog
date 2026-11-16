@@ -954,6 +954,21 @@ Puerto=8765
 
         bool doubtMode; // la frase actual empezo con "creo que" / "probablemente"...
 
+        // elegido de la lista (cuadro de texto): sin interpretar nada, con deshacer como siempre
+        public string AddPicked(Entry e, bool doubt)
+        {
+            var before = (Snap)Snapshot();
+            // un addon sin killer anotado: el killer sale del addon
+            if (e.K == Kind.Addon && Killer == null && !string.IsNullOrEmpty(e.Killer))
+                Killer = cat.Killers.FirstOrDefault(k => k.Name == e.Killer);
+            doubtMode = doubt;
+            string r = AddOne(e);
+            doubtMode = false;
+            Prune();
+            undoSnap = before; undoAdded = new List<Entry> { e }; undoAlias = null;
+            return r;
+        }
+
         string AddOne(Entry e)
         {
             if (e.K == Kind.Killer) { Killer = e; return "killer: " + e.Name; }
@@ -2238,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 19;
+        public const int AppVersion = 20;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2472,6 +2487,7 @@ Puerto=8765
             vkTalk = Vk(cfg.Get("Tecla", "Alt"));
             if (vkTalk == 0) vkTalk = (int)Keys.Menu;
             vkClear = Vk(cfg.Get("TeclaLimpiar", "G"));
+            vkType = Vk(cfg.Get("TeclaEscribir", "T"));
             vkNames = Vk(cfg.Get("TeclaNombres", ""));
             vkHelp = Vk(cfg.Get("TeclaAyuda", "H"));
             showNames = Regex.IsMatch(cfg.Get("Nombres", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase);
@@ -3046,6 +3062,185 @@ Puerto=8765
             }) { IsBackground = true }.Start();
         }
 
+        // ---- escribir en vez de hablar: cuadro con autocompletado (solo con el cursor libre: menu de ESC, lobby, fuera del juego)
+        int vkType; bool typeKeyDown;
+        TypeBox typeBox;
+        [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+        [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+
+        bool CursorFree()
+        {
+            var ci = new CURSORINFO { cbSize = Marshal.SizeOf(typeof(CURSORINFO)) };
+            bool cursor = GetCursorInfo(ref ci) && (ci.flags & 1) != 0 && ci.hCursor != IntPtr.Zero;
+            return cursor || !DbdInFront();
+        }
+
+        void OpenTypeBox()
+        {
+            if (typeBox == null || typeBox.IsDisposed) typeBox = new TypeBox(this);
+            var b = Bounds;
+            bool right = !cfg.Get("Posicion", "arriba-derecha").ToLowerInvariant().Contains("izq");
+            var scr = Screen.FromRectangle(b).WorkingArea;
+            int x = right ? b.Left - typeBox.Width - 8 : b.Right + 8;
+            x = Math.Max(scr.Left, Math.Min(x, scr.Right - typeBox.Width));
+            typeBox.Location = new Point(x, Math.Max(scr.Top, Math.Min(b.Top, scr.Bottom - typeBox.Height)));
+            typeBox.Open();
+            // el juego tiene el foco: Windows solo deja pasarlo si "se apreto una tecla" (Alt)
+            keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero);
+            SetForegroundWindow(typeBox.Handle);
+            typeBox.Activate(); typeBox.FocusText();
+        }
+
+        // sugerencias: killers, perks, addons (los del killer anotado) y ofrendas, en ingles o en espanol
+        public List<Entry> Suggest(string q)
+        {
+            string n = Txt.Norm(q);
+            if (n.Length == 0) return new List<Entry>();
+            var addons = st.Killer != null ? cat.Addons.Where(a => a.Killer == st.Killer.Name) : cat.Addons;
+            var pool = cat.Killers.Concat(cat.Perks).Concat(addons).Concat(cat.Offerings);
+            return pool.Select(e =>
+            {
+                double s = 0;
+                foreach (var nm in new[] { e.Name, e.NameEs }.Where(x => !string.IsNullOrEmpty(x)).Select(x => Txt.Norm(x)).Concat(e.Keys.Select(k => k.N)))
+                {
+                    if (nm == n || (" " + nm + " ").Contains(" " + n + " ")) s = Math.Max(s, 3.3); // palabra entera ("pain" -> Pain Resonance)
+                    else if (nm.StartsWith(n)) s = Math.Max(s, 3);
+                    else if ((" " + nm).Contains(" " + n)) s = Math.Max(s, 2.5);
+                    else if (nm.Contains(n)) s = Math.Max(s, 2);
+                    else if (n.Length >= 3) { double r = Txt.Ratio(n, nm.Substring(0, Math.Min(nm.Length, n.Length))); if (r >= 0.75) s = Math.Max(s, r); }
+                }
+                // a igual coincidencia: perks y addons del killer primero, ofrendas al final
+                if (s > 0) s += e.K == Kind.Perk ? 0.1 : e.K == Kind.Addon && st.Killer != null ? 0.1 : e.K == Kind.Offering ? -0.1 : 0;
+                return new { E = e, S = s };
+            }).Where(x => x.S > 0).OrderByDescending(x => x.S).ThenBy(x => x.E.Name.Length).Take(8).Select(x => x.E).ToList();
+        }
+
+        public string SuggestTag(Entry e)
+        {
+            switch (e.K)
+            {
+                case Kind.Killer: return "killer";
+                case Kind.Perk: return "perk";
+                case Kind.Offering: return "ofrenda";
+                default: return "addon · " + (e.Killer ?? "") + (e.Rarity != null && ColorNameOf(e.Rarity).Length > 0 ? " · " + ColorNameOf(e.Rarity) : "");
+            }
+        }
+        static string ColorNameOf(string rar)
+        {
+            switch (rar) { case "visceral": return "rojo"; case "veryrare": return "violeta"; case "rare": return "verde"; case "uncommon": return "amarillo"; case "common": return "marrón"; default: return ""; }
+        }
+
+        static readonly Regex TypedCmdRx = new Regex(@"^(?:tiene|tenia|quitar?|sacar?|borrar?|creo|probablemente|capaz|el killer|killer|ofrenda|addon|no tiene|confirmad|descartad|el (?:uno|dos|tres|cuatro|cinco|[1-5]))\b");
+
+        // Enter: anota la sugerencia elegida (o, si es un comando, lo aplica como si lo hubiera dicho)
+        public void SubmitTyped(string text, Entry picked, bool doubt, bool byArrows)
+        {
+            text = (text ?? "").Trim();
+            var before = st.Snapshot();
+            string what;
+            bool isCmd = TypedCmdRx.IsMatch(Txt.Norm(text));
+            if (picked != null && (!isCmd || byArrows))
+                what = st.AddPicked(picked, doubt);
+            else if (text.Length > 0)
+            {
+                st.Trace.Clear();
+                what = st.Apply(doubt ? "creo que " + text : text);
+                st.ForgetGuess();
+            }
+            else return;
+            string said = picked != null && (!isCmd || byArrows) ? picked.Name : text;
+            Heard("texto", said, what, false);
+            Log("[texto] " + said, what);
+            bool ok = !what.StartsWith("no ");
+            if (ok) { st.Save(Path.Combine(dir, "estado.txt")); PublishDiff(before); }
+            Feedback("⌨ " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), 5000);
+            Relayout();
+        }
+
+        class TypeBox : Form
+        {
+            readonly Overlay ov;
+            readonly TextBox tb;
+            readonly ListBox lb;
+            readonly Label hint;
+            List<Entry> sugg = new List<Entry>();
+            bool byArrows;
+
+            public TypeBox(Overlay o)
+            {
+                ov = o;
+                FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; TopMost = true; KeyPreview = true;
+                BackColor = Color.FromArgb(18, 18, 24); Padding = new Padding(8);
+                Width = 440;
+                tb = new TextBox { Dock = DockStyle.Top, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(32, 32, 42), ForeColor = Color.WhiteSmoke, Font = new Font("Segoe UI", 12f) };
+                lb = new ListBox { Dock = DockStyle.Top, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(18, 18, 24), ForeColor = Color.Gainsboro,
+                                   DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 24, Height = 0, IntegralHeight = false, Font = new Font("Segoe UI", 10.5f) };
+                hint = new Label { Dock = DockStyle.Top, Height = 36, ForeColor = Color.FromArgb(140, 140, 155), Font = new Font("Segoe UI", 8.5f),
+                                   Text = "Enter: anotar · Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\nTambién comandos: \"quitar surge\", \"el killer es nurse\", \"addon rojo\"" };
+                Controls.Add(hint); Controls.Add(lb); Controls.Add(tb);
+                tb.TextChanged += (s, e) => Refresh2();
+                lb.DrawItem += DrawSugg;
+                lb.MouseClick += (s, e) => { int i = lb.IndexFromPoint(e.Location); if (i >= 0) { lb.SelectedIndex = i; byArrows = true; Submit(false); } };
+                KeyDown += OnKey;
+                Deactivate += (s, e) => Hide();
+                Refresh2();
+            }
+
+            public void Open() { tb.Text = ""; Refresh2(); Show(); }
+            public void FocusText() { tb.Focus(); }
+            public void SetText(string s) { tb.Text = s; tb.SelectionStart = s.Length; }
+
+            void Refresh2()
+            {
+                sugg = ov.Suggest(tb.Text);
+                lb.Items.Clear();
+                foreach (var e in sugg) lb.Items.Add(e);
+                if (sugg.Count > 0) lb.SelectedIndex = 0;
+                byArrows = false;
+                lb.Height = sugg.Count * lb.ItemHeight;
+                Height = Padding.Vertical + tb.Height + lb.Height + hint.Height + 4;
+            }
+
+            void DrawSugg(object s, DrawItemEventArgs e)
+            {
+                if (e.Index < 0 || e.Index >= sugg.Count) return;
+                var en = sugg[e.Index];
+                bool sel = (e.State & DrawItemState.Selected) != 0;
+                using (var b = new SolidBrush(sel ? Color.FromArgb(52, 52, 70) : Color.FromArgb(18, 18, 24))) e.Graphics.FillRectangle(b, e.Bounds);
+                var icon = en.Icon != null ? ov.GetIcon(en.Icon) : null;
+                int x = e.Bounds.X + 4;
+                if (icon != null) e.Graphics.DrawImage(icon, new Rectangle(x, e.Bounds.Y + 2, 20, 20));
+                x += 26;
+                Color c = en.K == Kind.Perk || en.K == Kind.Killer ? Color.WhiteSmoke : RarityColor(en.Rarity);
+                string name = ov.DName(en);
+                TextRenderer.DrawText(e.Graphics, name, lb.Font, new Point(x, e.Bounds.Y + 3), c, TextFormatFlags.NoPrefix);
+                int w = TextRenderer.MeasureText(name, lb.Font).Width;
+                using (var f = new Font("Segoe UI", 8.5f))
+                    TextRenderer.DrawText(e.Graphics, ov.SuggestTag(en), f, new Point(x + w + 6, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
+            }
+
+            void OnKey(object s, KeyEventArgs e)
+            {
+                if (e.KeyCode == Keys.Escape) { Hide(); e.Handled = e.SuppressKeyPress = true; }
+                else if (e.KeyCode == Keys.Down && sugg.Count > 0) { lb.SelectedIndex = Math.Min(sugg.Count - 1, lb.SelectedIndex + 1); byArrows = true; e.Handled = e.SuppressKeyPress = true; }
+                else if (e.KeyCode == Keys.Up && sugg.Count > 0) { lb.SelectedIndex = Math.Max(0, lb.SelectedIndex - 1); byArrows = true; e.Handled = e.SuppressKeyPress = true; }
+                else if (e.KeyCode == Keys.Enter) { Submit(e.Shift); e.Handled = e.SuppressKeyPress = true; }
+            }
+
+            void Submit(bool doubt)
+            {
+                Entry picked = lb.SelectedIndex >= 0 && lb.SelectedIndex < sugg.Count ? sugg[lb.SelectedIndex] : null;
+                ov.SubmitTyped(tb.Text, picked, doubt, byArrows);
+                tb.Text = ""; // queda abierto para anotar otra cosa; Esc cierra
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                base.OnPaint(e);
+                using (var pen = new Pen(Color.FromArgb(90, 90, 110))) e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            }
+        }
+
         // ---- lo que entendio Whisper: se anota todo en logs\escuchado.txt y (opcional) se muestra un momento abajo del widget
         string heardLine = ""; int heardUntil;
         bool ShowHeard { get { return !Regex.IsMatch(cfg.Get("VerTranscripcion", "si"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
@@ -3411,6 +3606,7 @@ Puerto=8765
             handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)") { Checked = HandsOn };
             handsItem.Click += (s, e) => SetHands(!HandsOn);
             menu.Items.Add(handsItem);
+            menu.Items.Add("Escribir en vez de hablar… (" + cfg.Get("TeclaEscribir", "T") + ")", null, (s, e) => OpenTypeBox());
             var heardItem = new ToolStripMenuItem("Mostrar lo que entiende Whisper");
             heardItem.Click += (s, e) => { SetCfg("VerTranscripcion", ShowHeard ? "no" : "si"); Feedback(ShowHeard ? "voy a mostrar lo que entiendo" : "ya no muestro lo que entiendo", Color.Silver, 3000); };
             menu.Items.Add(heardItem);
@@ -3498,6 +3694,11 @@ Puerto=8765
 
         void KeyTick()
         {
+            // escribiendo en el cuadro: las teclas son para el texto (la V, la G o la H no hacen nada)
+            if (typeBox != null && typeBox.Visible) { typeKeyDown = true; return; }
+            bool tk = vkType != 0 && (GetAsyncKeyState(vkType) & 0x8000) != 0;
+            if (tk && !typeKeyDown && !talking && CursorFree()) OpenTypeBox();
+            typeKeyDown = tk;
             int now = Environment.TickCount;
             bool down = (GetAsyncKeyState(vkTalk) & 0x8000) != 0;
 
