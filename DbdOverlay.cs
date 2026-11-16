@@ -991,6 +991,57 @@ Puerto=8765
             return r;
         }
 
+        // lo anotado ahora (para "quitar", "cambiar" y "duda" desde el cuadro de escribir)
+        public List<Entry> Current()
+        {
+            var l = new List<Entry>(Perks);
+            l.AddRange(Addons);
+            if (Offering != null) l.Add(Offering);
+            return l;
+        }
+
+        public bool IsFull(Entry e)
+        {
+            return e.K == Kind.Perk ? Perks.Count >= 4 && !Perks.Contains(e) : e.K == Kind.Addon ? Addons.Count >= 2 && !Addons.Contains(e) : false;
+        }
+
+        public string RemovePicked(Entry e)
+        {
+            var before = (Snap)Snapshot();
+            bool ok = Perks.Remove(e) | Addons.Remove(e);
+            if (Offering == e) { Offering = null; ok = true; }
+            Doubt.Remove(e);
+            if (!ok) return "no estaba: " + e.Name;
+            undoSnap = before; undoAdded = null; undoAlias = null;
+            return "- " + e.Name;
+        }
+
+        // cambiar uno por otro en el mismo lugar (el nuevo hereda si era sospecha, salvo que se diga lo contrario)
+        public string ReplacePicked(Entry old, Entry neu, bool doubt)
+        {
+            var before = (Snap)Snapshot();
+            var list = old.K == Kind.Perk ? Perks : old.K == Kind.Addon ? Addons : null;
+            if (old.K == Kind.Offering) Offering = neu;
+            else if (list == null || !list.Contains(old)) return "no estaba: " + old.Name;
+            else if (list.Contains(neu)) list.Remove(old);
+            else list[list.IndexOf(old)] = neu;
+            Doubt.Remove(old);
+            if (doubt) Doubt.Add(neu); else Doubt.Remove(neu);
+            undoSnap = before; undoAdded = new List<Entry> { neu }; undoAlias = null;
+            return old.Name + " → " + neu.Name + (doubt ? " (?)" : "");
+        }
+
+        // sospecha <-> seguro
+        public string ToggleDoubt(Entry e)
+        {
+            var before = (Snap)Snapshot();
+            if (!Current().Contains(e)) return "no estaba: " + e.Name;
+            undoSnap = before; undoAdded = null; undoAlias = null;
+            if (Doubt.Remove(e)) return "✓ " + e.Name + " confirmado";
+            Doubt.Add(e);
+            return e.Name + " ahora es sospecha (?)";
+        }
+
         // cambio de killer: pide confirmacion si ya habia uno; al cambiar se van los addons (y sus sospechas) del anterior
         public Entry PendingKiller; public int PendingUntil;
         public bool ConfirmedKiller; // el cuadro de escribir ya pregunto
@@ -2312,7 +2363,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 32;
+        public const int AppVersion = 33;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3453,6 +3504,94 @@ Puerto=8765
             return cursor || !DbdInFront();
         }
 
+        // ---- escribir sin sacarle el foco al juego: mientras el cuadro esta abierto, la app toma las teclas
+        // (gancho de teclado de Windows, el mismo que usan Discord o AutoHotkey; no toca el juego) y no se las pasa al juego.
+        // Solo existe mientras el cuadro esta abierto: cerrado, no hay gancho.
+        delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+        [StructLayout(LayoutKind.Sequential)] struct KBDLLHOOKSTRUCT { public uint vkCode, scanCode, flags, time; public IntPtr extra; }
+        [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SetWindowsHookEx(int id, LowLevelKeyboardProc fn, IntPtr mod, uint thread);
+        [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr h);
+        [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr h, int n, IntPtr w, IntPtr l);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string name);
+        [DllImport("user32.dll")] static extern short GetKeyState(int vk);
+        [DllImport("user32.dll")] static extern IntPtr GetKeyboardLayout(int thread);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int ToUnicodeEx(uint vk, uint scan, byte[] state, StringBuilder buf, int size, uint flags, IntPtr hkl);
+
+        IntPtr kbHook;
+        LowLevelKeyboardProc kbProc; // referencia viva (si no, el recolector de basura la borra y Windows llama a la nada)
+
+        void StartKeyHook()
+        {
+            if (kbHook != IntPtr.Zero) return;
+            kbProc = KeyHookProc;
+            kbHook = SetWindowsHookEx(13, kbProc, GetModuleHandle(null), 0);
+            if (kbHook == IntPtr.Zero) DebugEvent("escribir: no pude tomar el teclado (error " + Marshal.GetLastWin32Error() + ")");
+        }
+
+        void StopKeyHook()
+        {
+            if (kbHook == IntPtr.Zero) return;
+            UnhookWindowsHookEx(kbHook);
+            kbHook = IntPtr.Zero;
+        }
+
+        static bool IsModifierVk(uint vk)
+        {
+            return vk == 0x10 || vk == 0x11 || vk == 0x12 || (vk >= 0xA0 && vk <= 0xA5) || vk == 0x14 || vk == 0x5B || vk == 0x5C || vk == 0x90 || vk == 0x91;
+        }
+
+        IntPtr KeyHookProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            try
+            {
+                if (nCode >= 0 && typeBox != null && typeBox.Visible)
+                {
+                    var k = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
+                    bool injected = (k.flags & 0x10) != 0;
+                    // Shift, Ctrl, Alt, Bloq Mayus y Windows pasan (sirven para las mayusculas y combinaciones)
+                    if (!injected && !IsModifierVk(k.vkCode))
+                    {
+                        int msg = wParam.ToInt32();
+                        if (msg == 0x100 || msg == 0x104) // tecla apretada (tambien con Alt)
+                        {
+                            bool shift = (GetAsyncKeyState(0x10) & 0x8000) != 0, ctrl = (GetAsyncKeyState(0x11) & 0x8000) != 0, alt = (GetAsyncKeyState(0x12) & 0x8000) != 0;
+                            var state = new byte[256];
+                            if (shift) state[0x10] = 0x80;
+                            if ((GetKeyState(0x14) & 1) != 0) state[0x14] = 1;
+                            if (ctrl && alt) { state[0x11] = 0x80; state[0x12] = 0x80; } // AltGr (por ejemplo @)
+                            int pid;
+                            var hkl = GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), out pid));
+                            var sb = new StringBuilder(8);
+                            int r = (ctrl && !alt) ? 0 : ToUnicodeEx(k.vkCode, k.scanCode, state, sb, sb.Capacity, 0, hkl);
+                            string text = r > 0 ? sb.ToString(0, r) : "";
+                            var key = (Keys)k.vkCode;
+                            var box = typeBox;
+                            BeginInvoke((Action)(() => { if (box.Visible) box.HookKey(key, text, shift, ctrl); }));
+                        }
+                        return (IntPtr)1; // el juego no la recibe (ni apretada ni soltada)
+                    }
+                }
+            }
+            catch { }
+            return CallNextHookEx(kbHook, nCode, wParam, lParam);
+        }
+
+        IntPtr typePrevFg, typeRefFg; bool typeFromGame; int typeOpenedAt;
+        [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+
+        // cerrar el cuadro (Enter / Esc): el foco vuelve directo a la ventana de antes (el juego).
+        // Sin esto Windows elige la siguiente ventana y DBD a veces queda "sin foco" hasta hacerle clic.
+        public void HideTypeBox()
+        {
+            StopKeyHook();
+            if (typeBox == null) return;
+            bool hadFocus = GetForegroundWindow() == typeBox.Handle;
+            typeBox.Hide();
+            // solo si por algun motivo el cuadro quedo con el foco (por ejemplo, abierto desde el menu): devolverlo
+            var prev = typePrevFg;
+            if (hadFocus && prev != IntPtr.Zero && IsWindow(prev)) { SetForegroundWindow(prev); BringWindowToTop(prev); }
+        }
+
         void OpenTypeBox()
         {
             if (typeBox == null || typeBox.IsDisposed) typeBox = new TypeBox(this);
@@ -3462,15 +3601,13 @@ Puerto=8765
             int x = right ? b.Left - typeBox.Width - 8 : b.Right + 8;
             x = Math.Max(scr.Left, Math.Min(x, scr.Right - typeBox.Width));
             typeBox.Location = new Point(x, Math.Max(scr.Top, Math.Min(b.Top, scr.Bottom - typeBox.Height)));
+            // el juego (o la ventana que este al frente) se queda con el foco: las teclas las toma el gancho
+            var prevFg = GetForegroundWindow();
+            typePrevFg = prevFg != typeBox.Handle && prevFg != Handle ? prevFg : IntPtr.Zero;
+            typeFromGame = DbdInFront();
+            typeOpenedAt = Environment.TickCount; typeRefFg = IntPtr.Zero;
             typeBox.Open();
-            // otra ventana tiene el foco: para quitarselo, la app se "engancha" un instante a su entrada de teclado.
-            // (antes se simulaba una tecla, Alt o F24, que le llegaba a esa ventana y Windows hacia el sonido de error)
-            int pid, fgThread = GetWindowThreadProcessId(GetForegroundWindow(), out pid), me = GetCurrentThreadId();
-            bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
-            SetForegroundWindow(typeBox.Handle);
-            BringWindowToTop(typeBox.Handle);
-            if (attached) AttachThreadInput(me, fgThread, false);
-            typeBox.Activate(); typeBox.FocusText();
+            StartKeyHook();
         }
 
         // sugerencias: killers, perks, addons (los del killer anotado) y ofrendas, en ingles o en espanol
@@ -3478,6 +3615,9 @@ Puerto=8765
         {
             string n = Txt.Norm(q);
             if (n.Length == 0) return new List<Entry>();
+            // "quitar …", "cambiar …", "duda …": lo que ya esta anotado
+            var bm = BoxModeRx.Match(n);
+            if (bm.Success) return CurrentMatching(bm.Groups[2].Value, null);
             // "addon [color] [palabra]": todos los addons del killer anotado, de mejor (rojo) a peor (marron)
             var am = Regex.Match(n, @"^(?:addons?|add ons?|adon|accesorios?)\b\s*(.*)$");
             if (am.Success)
@@ -3573,6 +3713,41 @@ Puerto=8765
             Relayout();
         }
 
+        // ---- quitar / cambiar / duda desde el cuadro
+        static readonly Regex BoxModeRx = new Regex(@"^(quitar?|sacar?|borrar?|cambiar?|reemplazar?|duda|dudo|sospecha|seguro|confirmar?)\b\s*(.*)$");
+        public string BoxMode(string text)
+        {
+            var m = BoxModeRx.Match(Txt.Norm(text ?? ""));
+            if (!m.Success) return "";
+            string w = m.Groups[1].Value;
+            return w.StartsWith("camb") || w.StartsWith("reemp") ? "cambiar" : w.StartsWith("dud") || w == "sospecha" || w == "seguro" || w.StartsWith("confirm") ? "duda" : "quitar";
+        }
+
+        // lo anotado (o solo de un tipo), filtrado por lo que se escribio
+        public List<Entry> CurrentMatching(string rest, Kind? kind)
+        {
+            string n = Txt.Norm(rest ?? "");
+            return st.Current().Where(e => (kind == null || e.K == kind) &&
+                (n.Length == 0 || Txt.Norm(e.Name).Contains(n) || (e.NameEs != null && Txt.Norm(e.NameEs).Contains(n)) || e.Keys.Any(k => k.N.Contains(n)))).ToList();
+        }
+        public bool IsFull(Entry e) { return st.IsFull(e); }
+        public bool IsDoubt(Entry e) { return st.IsDoubt(e); }
+
+        public void BoxDo(string said, Func<string> act)
+        {
+            var before = st.Snapshot();
+            string what = act();
+            Heard("texto", said, what, false);
+            Log("[texto] " + said, what);
+            bool ok = !what.StartsWith("no ");
+            if (ok) { st.Save(Path.Combine(dir, "estado.txt")); PublishDiff(before); }
+            Feedback("⌨ " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), 5000);
+            Relayout();
+        }
+        public void BoxRemove(Entry e) { BoxDo("quitar " + e.Name, () => st.RemovePicked(e)); }
+        public void BoxReplace(Entry old, Entry neu, bool doubt) { BoxDo("cambiar " + old.Name + " por " + neu.Name, () => st.ReplacePicked(old, neu, doubt)); }
+        public void BoxToggleDoubt(Entry e) { BoxDo("duda " + e.Name, () => st.ToggleDoubt(e)); }
+
         class TypeBox : Form
         {
             readonly Overlay ov;
@@ -3598,18 +3773,52 @@ Puerto=8765
                 lb.DrawItem += DrawSugg;
                 lb.MouseClick += (s, e) => { int i = lb.IndexFromPoint(e.Location); if (i >= 0) { lb.SelectedIndex = i; byArrows = true; Submit(false); } };
                 KeyDown += OnKey;
-                Deactivate += (s, e) => Hide();
                 Refresh2();
             }
 
-            public void Open() { tb.Text = ""; Refresh2(); Show(); }
-            const string HintText = "Enter: anotar y cerrar · Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\n\"addon\": los del killer de mejor a peor · \"addon rojo\" · \"quitar surge\"";
+            public void Open() { replaceTarget = replaceNew = null; tb.Text = ""; Refresh2(); Show(); }
+            Entry replaceTarget; // "cambiar X": X elegido, ahora se escribe el nuevo
+            Entry replaceNew;    // lista llena: el nuevo elegido, ahora se elige cual sale
+            // no se activa al mostrarse ni al hacerle clic: el juego conserva el foco
+            protected override bool ShowWithoutActivation { get { return true; } }
+            protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x8; return cp; } }
+
+            // teclas que llegan del gancho (el cuadro no tiene el foco)
+            public void HookKey(Keys key, string text, bool shift, bool ctrl)
+            {
+                var e = new KeyEventArgs(key | (shift ? Keys.Shift : 0) | (ctrl ? Keys.Control : 0));
+                if (key == Keys.Escape || key == Keys.Enter || key == Keys.Up || key == Keys.Down || (key == Keys.Back && (shift || ctrl))) { OnKey(this, e); return; }
+                if (key == Keys.Back) { if (tb.Text.Length > 0) SetText(tb.Text.Substring(0, tb.Text.Length - 1)); return; }
+                if (ctrl) return;
+                foreach (char c in text) if (!char.IsControl(c)) SetText(tb.Text + c);
+            }
+            const string HintText = "Enter: anotar · \"noed?\" o Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\n\"addon\" · \"addon rojo\" · \"quitar …\" · \"cambiar …\" · \"duda …\"";
             public void FocusText() { tb.Focus(); }
             public void SetText(string s) { tb.Text = s; tb.SelectionStart = s.Length; }
 
             void Refresh2()
             {
-                sugg = ov.Suggest(tb.Text);
+                string why = null;
+                if (replaceNew != null)
+                {
+                    sugg = ov.CurrentMatching(tb.Text, replaceNew.K);
+                    why = "Ya está lleno: ¿cuál sacás para poner " + replaceNew.Name + "?  (Enter: ese · Esc: nada)";
+                }
+                else if (replaceTarget != null)
+                {
+                    var rt = replaceTarget;
+                    sugg = Txt.Norm(tb.Text).Length == 0 ? new List<Entry>() : ov.Suggest(tb.Text).Where(x => x.K == rt.K && x != rt).ToList();
+                    why = "Cambiar " + rt.Name + " por…  (escribí el nuevo · Shift+Enter: como sospecha)";
+                }
+                else
+                {
+                    sugg = ov.Suggest(tb.Text);
+                    string mode = ov.BoxMode(tb.Text);
+                    if (mode == "quitar") why = "Quitar: elegí cuál (Enter)";
+                    else if (mode == "cambiar") why = "Cambiar: elegí cuál sale (Enter) y después escribí el nuevo";
+                    else if (mode == "duda") why = "Duda: Enter alterna entre seguro y sospecha (?)";
+                    if (mode.Length > 0 && sugg.Count == 0) why = "No hay nada anotado que coincida";
+                }
                 confirmKiller = null;
                 lb.Items.Clear();
                 foreach (var e in sugg) lb.Items.Add(e);
@@ -3618,8 +3827,8 @@ Puerto=8765
                 lb.Height = Math.Min(sugg.Count, 10) * lb.ItemHeight; // con mas de 10 aparece la barra para bajar
                 if (sugg.Count > 0) lb.TopIndex = 0;
                 bool noKiller = Regex.IsMatch(Txt.Norm(tb.Text), @"^(?:addons?|add ons?|adon|accesorios?)\b") && !ov.HasKiller;
-                hint.Text = noKiller ? "Primero anotá el killer (escribí su nombre) para ver sus addons." : HintText;
-                hint.ForeColor = noKiller ? Color.FromArgb(240, 170, 80) : Color.FromArgb(140, 140, 155);
+                hint.Text = noKiller ? "Primero anotá el killer (escribí su nombre) para ver sus addons." : why != null ? why + "\n" + HintText.Split('\n')[0] : HintText;
+                hint.ForeColor = noKiller || why != null ? Color.FromArgb(240, 170, 80) : Color.FromArgb(140, 140, 155);
                 Height = Padding.Vertical + tb.Height + lb.Height + hint.Height + 4;
             }
 
@@ -3655,14 +3864,14 @@ Puerto=8765
                     x += TextRenderer.MeasureText(name, f0).Width;
                 }
                 using (var f = new Font("Segoe UI", 8.5f))
-                    TextRenderer.DrawText(e.Graphics, ov.SuggestTag(en), f, new Point(x + 4, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(e.Graphics, ov.SuggestTag(en) + (ov.IsDoubt(en) ? "  · sospecha (?)" : ""), f, new Point(x + 10, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
             }
             static readonly Font PillFont = new Font("Segoe UI", 7f, FontStyle.Bold);
             const int PillW = 58;
 
             void OnKey(object s, KeyEventArgs e)
             {
-                if (e.KeyCode == Keys.Escape) { Hide(); e.Handled = e.SuppressKeyPress = true; }
+                if (e.KeyCode == Keys.Escape) { ov.HideTypeBox(); e.Handled = e.SuppressKeyPress = true; }
                 else if (e.KeyCode == Keys.Back && (e.Shift || e.Control))
                 {
                     // Shift/Ctrl+Retroceso: borra la palabra anterior de una (sin esto Windows escribe un caracter raro)
@@ -3686,13 +3895,30 @@ Puerto=8765
 
             void Submit(bool doubt)
             {
+                // "noed?" (o "¿noed?"): un signo de pregunta en lo escrito = anotarlo como sospecha
+                if (tb.Text.IndexOf('?') >= 0 || tb.Text.IndexOf('¿') >= 0) doubt = true;
                 if (confirmKiller != null)
                 {
                     ov.ConfirmKiller(confirmKiller);
-                    confirmKiller = null; tb.Text = ""; Hide();
+                    confirmKiller = null; tb.Text = ""; ov.HideTypeBox();
                     return;
                 }
                 Entry picked = lb.SelectedIndex >= 0 && lb.SelectedIndex < sugg.Count ? sugg[lb.SelectedIndex] : null;
+                // modos de cambio
+                if (replaceNew != null) { if (picked == null) return; ov.BoxReplace(picked, replaceNew, doubt || replaceDoubt); Close2(); return; }
+                if (replaceTarget != null) { if (picked == null) return; ov.BoxReplace(replaceTarget, picked, doubt); Close2(); return; }
+                string mode = ov.BoxMode(tb.Text);
+                if (mode.Length > 0 && picked != null)
+                {
+                    if (mode == "quitar") { ov.BoxRemove(picked); Close2(); return; }
+                    if (mode == "duda") { ov.BoxToggleDoubt(picked); Close2(); return; }
+                    replaceTarget = picked; SetText(""); Refresh2(); return; // cambiar: ahora el nuevo
+                }
+                // perk o addon nuevo con la lista llena: elegir cual sale
+                if (picked != null && (picked.K == Kind.Perk || picked.K == Kind.Addon) && ov.IsFull(picked) && mode.Length == 0)
+                {
+                    replaceNew = picked; replaceDoubt = doubt; SetText(""); Refresh2(); return;
+                }
                 var cur = ov.CurrentKiller;
                 if (picked != null && picked.K == Kind.Killer && cur != null && cur != picked)
                 {
@@ -3702,8 +3928,11 @@ Puerto=8765
                     return;
                 }
                 ov.SubmitTyped(tb.Text, picked, doubt, byArrows);
-                tb.Text = ""; Hide(); // elegido: se cierra (T para anotar otra cosa)
+                tb.Text = ""; ov.HideTypeBox(); // elegido: se cierra (T para anotar otra cosa)
             }
+
+            bool replaceDoubt;
+            void Close2() { replaceTarget = replaceNew = null; tb.Text = ""; ov.HideTypeBox(); }
 
             protected override void OnPaint(PaintEventArgs e)
             {
@@ -4272,12 +4501,24 @@ Puerto=8765
         void KeyTick()
         {
             // escribiendo en el cuadro: las teclas son para el texto (la V, la G o la H no hacen nada)
-            if (typeBox != null && typeBox.Visible) { typeKeyDown = true; return; }
+            if (typeBox != null && typeBox.Visible)
+            {
+                typeKeyDown = true;
+                // si cambia la ventana del frente (alt-tab, clic en otra app), se cierra: no seguir tomando el teclado
+                var fgNow = GetForegroundWindow();
+                if (Environment.TickCount - typeOpenedAt > 700)
+                {
+                    if (typeRefFg == IntPtr.Zero) typeRefFg = fgNow;
+                    else if (fgNow != typeRefFg) HideTypeBox();
+                }
+                return;
+            }
             if (keyCapture != null && !keyCapture.IsDisposed && keyCapture.Visible) return; // eligiendo una tecla: no se dispara nada
             keysGate = !KeysOnlyInDbd || DbdInFront();
             bool tk = vkType != 0 && TypeComboDown();
             // se abre al soltar la T: asi la tecla no queda apretada contra el cuadro ni contra el juego
-            if (tk && !typeKeyDown && !talking && CursorFree()) typePending = true;
+            // (no se pide el cursor visible: DBD dibuja su propio cursor y Windows lo reporta oculto incluso en el lobby)
+            if (tk && !typeKeyDown && !talking) typePending = true;
             if (typePending && (GetAsyncKeyState(vkType) & 0x8000) == 0) { typePending = false; if (DbdInFront() || !KeysOnlyInDbd) OpenTypeBox(); }
             typeKeyDown = tk;
             int now = Environment.TickCount;
@@ -4877,6 +5118,7 @@ Puerto=8765
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            StopKeyHook();
             st.Save(Path.Combine(dir, "estado.txt"));
             if (mic != null) mic.Stop();
             tray.Visible = false;
