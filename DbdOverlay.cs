@@ -2312,7 +2312,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 31;
+        public const int AppVersion = 32;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2432,6 +2432,12 @@ Puerto=8765
             Color head = Color.FromArgb(235, 90, 90), cmd = Color.WhiteSmoke, note = Color.FromArgb(150, 150, 160);
             var l = new List<Tuple<string, Color, bool>>();
             Action<string, Color, bool> A = (t, c, b) => l.Add(Tuple.Create(t, c, b));
+            // primero: si estas compartiendo la lista y con quien
+            if (!Preview)
+            {
+                string who = partyNames.Count > 0 ? ": " + string.Join(", ", partyNames.Values.Where(n => n.Length > 0).Distinct()) : "";
+                A((InGroup ? "👥 En grupo" + who : "Sin grupo") + " · " + RoomText(), InGroup ? Color.FromArgb(130, 200, 140) : note, false);
+            }
             A("Mantené " + KeyName + " y decí:", head, true);
             A("\"tiene Pain Resonance y Deadlock\"   anota perks (máx. 4)", cmd, false);
             A("\"es la Huntress\"   killer (no se muestra, ayuda con los addons)", cmd, false);
@@ -2534,6 +2540,7 @@ Puerto=8765
         {
             this.dir = dir;
             cfg = Cfg.Load(Path.Combine(dir, "config.ini"));
+            MigrateConfig();
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false; TopMost = true;
             StartPosition = FormStartPosition.Manual;
@@ -3781,6 +3788,29 @@ Puerto=8765
 
         string MyName { get { return cfg.Get("Nombre", ""); } }
 
+        // configuraciones creadas por versiones viejas: lo que seguia con el valor de fabrica viejo pasa al nuevo
+        // (lo que el usuario cambio a mano no se toca). Se hace una sola vez.
+        void MigrateConfig()
+        {
+            if (cfg.GetInt("ConfigVersion", 0) >= 2) return;
+            var changes = new[] {
+                Tuple.Create("Tecla", "Alt", "Shift+V"),
+                Tuple.Create("TeclaLimpiar", "G", "Shift+G"),
+                Tuple.Create("TeclaAyuda", "H", "Shift+H"),
+                Tuple.Create("TeclaNombres", "", "Shift+M"),
+                Tuple.Create("TeclaEscribir", "Ctrl+T", "Shift+T"),
+                Tuple.Create("TamanoPerk", "48", "72"),
+                Tuple.Create("TamanoKiller", "10", "12"),
+            };
+            foreach (var c in changes)
+            {
+                string v;
+                if (cfg.V.TryGetValue(c.Item1, out v) && string.Equals(v.Trim(), c.Item2, StringComparison.OrdinalIgnoreCase))
+                    SetCfg(c.Item1, c.Item3);
+            }
+            SetCfg("ConfigVersion", "2");
+        }
+
         void SetCfg(string key, string value)
         {
             cfg.V[key] = value;
@@ -3851,9 +3881,22 @@ Puerto=8765
             var party = d.TryGetValue("party", out o) ? o as Dictionary<string, object> : null;
             bool changed = lobby != steamLobby;
             steamLobby = lobby; // antes de calcular huellas (dependen del lobby)
+            var oldNames = new HashSet<string>(partyNames.Values.Where(n => n.Length > 0));
+            int oldCount = partyCount;
             partyNames = new Dictionary<string, string>();
             partyCount = party != null ? party.Count : 0;
             if (party != null) foreach (var kv in party) partyNames[Fingerprint(kv.Key)] = (kv.Value ?? "").ToString();
+            // aviso corto (no queda nada fijo en el widget): quien entro o salio del grupo
+            if (!changed || oldCount > 0)
+            {
+                var nowNames = new HashSet<string>(partyNames.Values.Where(n => n.Length > 0));
+                var joined = nowNames.Where(n => !oldNames.Contains(n)).ToList();
+                var left = oldNames.Where(n => !nowNames.Contains(n)).ToList();
+                if (joined.Count > 0 || left.Count > 0)
+                    Feedback((joined.Count > 0 ? "👥 " + string.Join(", ", joined) + " en el grupo" : "") +
+                             (left.Count > 0 ? (joined.Count > 0 ? " · " : "👥 ") + string.Join(", ", left) + " salió" : "") +
+                             (partyCount == 0 ? " · solo vos" : ""), Color.FromArgb(130, 200, 140), 5000);
+            }
             DebugEvent("steam: lobby " + (lobby.Length > 0 ? Sha(lobby).Substring(0, 8) : "(ninguno)") + " · amigos en el grupo: " + partyCount);
             if (changed) StartRoom(); else UpdateRoomMenu();
         }
@@ -4024,22 +4067,39 @@ Puerto=8765
             roomLabel.Text = RoomText();
             autoItem.Checked = AutoRoom;
             roomCopy.Enabled = roomLeave.Enabled = ManualRoom;
-            string t = "DBD Overlay · " + RoomText();
+            string t = "DBD Overlay v" + Updater.AppVersion + " · " + RoomText();
             tray.Text = t.Length > 63 ? t.Substring(0, 63) : t;
+            // el icono de la barra de tareas se pone verde mientras compartis la lista con alguien
+            var ic = InGroup ? trayGreen : trayRed;
+            if (ic != null && tray.Icon != ic) tray.Icon = ic;
             Relayout();
         }
 
-        void SetupTray()
+        // en grupo = conectado a la sala y con alguien mas (grupo de Steam con amigos, o sala con codigo)
+        bool InGroup { get { return room != null && (ManualRoom || partyCount > 0); } }
+        Icon trayRed, trayGreen;
+
+        static Icon TrayIcon(Color bg)
         {
             var bmp = new Bitmap(16, 16);
             using (var g = Graphics.FromImage(bmp))
             {
-                g.Clear(Color.FromArgb(170, 20, 30));
+                g.Clear(bg);
                 using (var f = new Font("Segoe UI", 8, FontStyle.Bold))
                     TextRenderer.DrawText(g, "D", f, new Rectangle(0, 0, 16, 16), Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
-            tray = new NotifyIcon { Icon = Icon.FromHandle(bmp.GetHicon()), Text = "DBD Overlay", Visible = true };
+            return Icon.FromHandle(bmp.GetHicon());
+        }
+
+        void SetupTray()
+        {
+            trayRed = TrayIcon(Color.FromArgb(170, 20, 30));
+            trayGreen = TrayIcon(Color.FromArgb(30, 140, 60));
+            tray = new NotifyIcon { Icon = trayRed, Text = "DBD Overlay", Visible = true };
             var menu = new ContextMenuStrip();
+            // arriba de todo, la version (para saber si ya se actualizo)
+            menu.Items.Add(new ToolStripMenuItem("DBD Overlay · versión " + Updater.AppVersion) { Enabled = false });
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Borrar lista", null, (s, e) => ClearWithUndo());
             namesItem = new ToolStripMenuItem("Mostrar nombres") { Checked = showNames };
             namesItem.Click += (s, e) => SetNames(!showNames);

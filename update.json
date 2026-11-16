@@ -1,8 +1,8 @@
 {
-    "version":  31,
-    "notes":  "Confirmacion al cambiar de killer (borra addons), etiquetas KILLER/PERK/ADDON/OFRENDA, dueno del perk, iconos de perks nuevos, teclas por defecto con Shift, Shift+Retroceso",
-    "date":  "2026-11-15 22:47",
+    "version":  32,
+    "notes":  "Version visible en el menu, configuraciones viejas pasan a las teclas nuevas, icono verde en grupo, aviso de quien entra o sale, estado del grupo en la ayuda",
+    "date":  "2026-11-15 22:56",
     "files":  {
-                  "DbdOverlay.exe":  "0929c9f426c68ec1c5159466315a3073aa41104579af5aea60ad0cfec8fb174c"
+                  "DbdOverlay.exe":  "a1404286344800e071f50debcf35e4d73f8bc9387d5df113d5799895f2d362d4"
               }
 }
