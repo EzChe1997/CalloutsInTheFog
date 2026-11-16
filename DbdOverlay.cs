@@ -291,6 +291,7 @@ Puerto=8765
         public HashSet<string> Desc = new HashSet<string>(); // palabras de la descripcion en espanol
         public string NameEs, Info, InfoEn;                  // nombre en espanol y descripciones (espanol / ingles) para leer (hover)
         public string Owner;                                 // perks: el personaje dueño (vacio = perk general)
+        public string Action, ActionTag;                     // solo en el cuadro de escribir: acciones de sala ("salir", "nueva", "entrar:codigo")
         public List<Key> Keys = new List<Key>();
         public void AddKey(string s)
         {
@@ -1926,6 +1927,29 @@ Puerto=8765
             }
         }
 
+        public static void PublishNow(string topic, Dictionary<string, object> op) { PublishNow(topic, op, 0); }
+        // waitMs > 0: espera a que salga (como mucho ese tiempo), para usar al cerrar la app
+        public static void PublishNow(string topic, Dictionary<string, object> op, int waitMs)
+        {
+            string body = new JavaScriptSerializer().Serialize(op);
+            var th = new Thread(() =>
+            {
+                try
+                {
+                    var req = (HttpWebRequest)WebRequest.Create("https://ntfy.sh/" + topic);
+                    req.Method = "POST"; req.UserAgent = "DbdOverlay/1.0"; req.Timeout = 15000;
+                    req.ContentType = "text/plain; charset=utf-8";
+                    var b = Encoding.UTF8.GetBytes(body);
+                    req.ContentLength = b.Length;
+                    using (var s = req.GetRequestStream()) s.Write(b, 0, b.Length);
+                    using (req.GetResponse()) { }
+                }
+                catch { }
+            }) { IsBackground = true };
+            th.Start();
+            if (waitMs > 0) th.Join(waitMs);
+        }
+
         public void Publish(Dictionary<string, object> op)
         {
             op["from"] = Me;
@@ -1974,6 +1998,7 @@ Puerto=8765
         {
             s = Regex.Replace((s ?? "").Trim().ToLowerInvariant(), @"[^a-z0-9]", "");
             if (s.StartsWith("dbdov")) s = s.Substring(5);
+            if (s.StartsWith("sala") && s.Length >= 14) s = s.Substring(4); // "sala abcd2345ef" (como se pega en el chat)
             return s;
         }
 
@@ -2363,7 +2388,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 36;
+        public const int AppVersion = 37;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3014,6 +3039,8 @@ Puerto=8765
             // en partida DBD esconde el cursor: ahi no se muestra nada (algunos juegos lo "esconden" dejandolo sin imagen)
             bool cursor = GetCursorInfo(ref ci) && (ci.flags & 1) != 0 && ci.hCursor != IntPtr.Zero;
             UpdateVisibility(cursor);
+            bool ro = Visible && cursor && roomRect.Contains(new Point(ci.x - Left, ci.y - Top));
+            if (ro != roomHover) { roomHover = ro; Relayout(); }
             if (Visible && !helpShown && cursor)
             {
                 var p = new Point(ci.x - Left, ci.y - Top);
@@ -3228,6 +3255,7 @@ Puerto=8765
                     t.Tick += (s, e) =>
                     {
                         t.Stop();
+                        restartingForUpdate = true; // se reinicia sola: sigue en la sala
                         try { Process.Start(Application.ExecutablePath, "--reinicio " + Process.GetCurrentProcess().Id); } catch { }
                         Close();
                     };
@@ -3582,7 +3610,6 @@ Puerto=8765
                             string text = r > 0 ? sb.ToString(0, r) : "";
                             var key = (Keys)k.vkCode;
                             var box = typeBox;
-                            typeLastKey = Environment.TickCount;
                             BeginInvoke((Action)(() => { if (box.Visible) box.HookKey(key, text, shift, ctrl); }));
                         }
                         return (IntPtr)1; // el juego no la recibe (ni apretada ni soltada)
@@ -3593,7 +3620,7 @@ Puerto=8765
             return CallNextHookEx(kbHook, nCode, wParam, lParam);
         }
 
-        IntPtr typePrevFg, typeRefFg; bool typeFromGame; int typeOpenedAt, typeLastKey;
+        IntPtr typePrevFg, typeRefFg; bool typeFromGame; int typeOpenedAt;
         [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
         [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
 
@@ -3626,13 +3653,13 @@ Puerto=8765
             var prevFg = GetForegroundWindow();
             typePrevFg = prevFg != typeBox.Handle && prevFg != Handle ? prevFg : IntPtr.Zero;
             typeFromGame = DbdInFront();
-            typeOpenedAt = typeLastKey = Environment.TickCount; typeRefFg = IntPtr.Zero;
+            typeOpenedAt = Environment.TickCount; typeRefFg = IntPtr.Zero;
             typeBox.Open();
             StartKeyHook();
             SetWindowPos(typeBox.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040); // arriba de todo (tambien del juego), sin activarse
             DebugEvent("escribir: abierto en " + typeBox.Bounds + (typeFromGame ? " (DBD al frente)" : "") + (kbHook == IntPtr.Zero ? " · SIN GANCHO" : ""));
             // tambien en el widget (por si el cuadro no se ve): las teclas van al cuadro hasta Enter/Esc
-            Feedback("⌨ escribiendo… las teclas van al cuadro · Esc para cerrar", Color.FromArgb(240, 200, 110), 30000);
+            Feedback("⌨ escribiendo… las teclas van al cuadro · Esc para cerrar", Color.FromArgb(240, 200, 110), int.MaxValue / 2);
         }
 
         // sugerencias: killers, perks, addons (los del killer anotado) y ofrendas, en ingles o en espanol
@@ -3640,6 +3667,46 @@ Puerto=8765
         {
             string n = Txt.Norm(q);
             if (n.Length == 0) return new List<Entry>();
+            var acts = RoomActions(n);
+            if (acts.Count > 0) { var rest0 = SuggestInner(q, n); acts.AddRange(rest0); return acts; }
+            return SuggestInner(q, n);
+        }
+
+        // ---- acciones de sala como opciones de la lista: "salir"/"exit", "sala"/"nueva", "sala CODIGO"
+        static bool Kw(string n, params string[] words)
+        {
+            var toks = n.Split(' ');
+            if (toks.Length > 2) return false; // frases largas: es otra cosa
+            return toks.Any(tk => words.Any(w => w == tk || (tk.Length >= 3 && w.StartsWith(tk))));
+        }
+        List<Entry> RoomActions(string n)
+        {
+            var l = new List<Entry>();
+            string code = "";
+            var sm = Regex.Match(n, @"^(?:sala|room|entrar(?: a)?(?: la)?(?: sala)?|unirse|join)\s+([a-z0-9 ]{6,})$");
+            if (sm.Success && !Regex.IsMatch(sm.Groups[1].Value, @"^(nueva|crear|crea|new|salir|dejar|leave)$")) code = Room.CleanCode(sm.Groups[1].Value);
+            if (code.Length >= 6)
+            {
+                l.Add(new Entry { K = Kind.Offering, Name = "Entrar a la sala " + code, Action = "entrar:" + code, ActionTag = ManualRoom ? "sale de la actual" : "" });
+                return l;
+            }
+            bool wantExit = Kw(n, "salir", "exit", "leave", "dejar", "irme"), wantNew = Kw(n, "nueva", "crear", "new");
+            bool anyRoom = Kw(n, "sala", "room");
+            bool salir = ManualRoom && (wantExit || (anyRoom && !wantNew));
+            bool nueva = wantNew || (anyRoom && !wantExit);
+            if (salir) l.Add(new Entry { K = Kind.Offering, Name = "Salir de la sala " + cfg.Get("Sala", ""), Action = "salir", ActionTag = RoomCount > 0 ? RoomCount + "/" + MaxRoom + " adentro" : "" });
+            if (nueva) l.Add(new Entry { K = Kind.Offering, Name = "Crear sala nueva", Action = "nueva", ActionTag = "copia el código para el chat" });
+            return l;
+        }
+        public void DoAction(string a)
+        {
+            if (a == "salir") { if (ManualRoom) LeaveRoom(); }
+            else if (a == "nueva") BoxRoom("sala nueva");
+            else if (a.StartsWith("entrar:")) BoxRoom("sala " + a.Substring(7));
+        }
+
+        List<Entry> SuggestInner(string q, string n)
+        {
             // "quitar …", "cambiar …", "duda …": lo que ya esta anotado
             var bm = BoxModeRx.Match(n);
             if (bm.Success) return CurrentMatching(bm.Groups[2].Value, null);
@@ -3894,10 +3961,11 @@ Puerto=8765
                 var e = new KeyEventArgs(key | (shift ? Keys.Shift : 0) | (ctrl ? Keys.Control : 0));
                 if (key == Keys.Escape || key == Keys.Enter || key == Keys.Up || key == Keys.Down || (key == Keys.Back && (shift || ctrl))) { OnKey(this, e); return; }
                 if (key == Keys.Back) { if (tb.Text.Length > 0) SetText(tb.Text.Substring(0, tb.Text.Length - 1)); return; }
+                if (ctrl && key == Keys.V) { try { string cb = Clipboard.GetText(); if (!string.IsNullOrEmpty(cb)) SetText(tb.Text + Regex.Replace(cb, @"\s+", " ").Trim()); } catch { } return; }
                 if (ctrl) return;
                 foreach (char c in text) if (!char.IsControl(c)) SetText(tb.Text + c);
             }
-            const string HintText = "Enter: anotar · \"noed?\" o Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\n\"addon\" · \"addon 15 lento\" · \"perk aura gancho\" · \"quitar …\" · \"cambiar …\" · \"duda …\"";
+            const string HintText = "Enter: anotar · \"noed?\" o Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\n\"addon\" · \"addon 15 lento\" · \"perk aura gancho\" · \"sala\" · \"quitar …\" · \"cambiar …\" · \"duda …\"";
             public void FocusText() { tb.Focus(); }
             public void SetText(string s) { tb.Text = s; tb.SelectionStart = s.Length; }
 
@@ -3912,8 +3980,13 @@ Puerto=8765
                 else if (replaceTarget != null)
                 {
                     var rt = replaceTarget;
-                    sugg = Txt.Norm(tb.Text).Length == 0 ? new List<Entry>() : ov.Suggest(tb.Text).Where(x => x.K == rt.K && x != rt).ToList();
+                    sugg = Txt.Norm(tb.Text).Length == 0 ? new List<Entry>() : ov.Suggest(tb.Text).Where(x => x.K == rt.K && x != rt && x.Action == null).ToList();
                     why = "Cambiar " + rt.Name + " por…  (escribí el nuevo · Shift+Enter: como sospecha)";
+                }
+                else if (ov.BoxRoomHint(tb.Text) != null)
+                {
+                    sugg = ov.Suggest(tb.Text).Where(x => x.Action != null).ToList();
+                    why = ov.BoxRoomHint(tb.Text);
                 }
                 else
                 {
@@ -3949,6 +4022,18 @@ Puerto=8765
                 x += 26;
                 // etiqueta de color con el tipo (KILLER / PERK / ADDON / OFRENDA), todas del mismo ancho para que los nombres queden alineados
                 string kind; Color pill;
+                if (en.Action != null)
+                {
+                    var ar = new Rectangle(x, e.Bounds.Y + 4, PillW, e.Bounds.Height - 8);
+                    using (var b = new SolidBrush(Color.FromArgb(30, 110, 70))) e.Graphics.FillRectangle(b, ar);
+                    TextRenderer.DrawText(e.Graphics, "SALA", PillFont, ar, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                    int ax = x + PillW + 8;
+                    TextRenderer.DrawText(e.Graphics, en.Name, lb.Font, new Point(ax, e.Bounds.Y + 3), Color.FromArgb(150, 225, 170), TextFormatFlags.NoPrefix);
+                    ax += TextRenderer.MeasureText(en.Name, lb.Font).Width;
+                    using (var f = new Font("Segoe UI", 8.5f))
+                        TextRenderer.DrawText(e.Graphics, en.ActionTag ?? "", f, new Point(ax + 10, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
+                    return;
+                }
                 switch (en.K)
                 {
                     case Kind.Killer: kind = "KILLER"; pill = Color.FromArgb(170, 40, 45); break;
@@ -4006,6 +4091,13 @@ Puerto=8765
                 {
                     ov.ConfirmKiller(confirmKiller);
                     confirmKiller = null; tb.Text = ""; ov.HideTypeBox();
+                    return;
+                }
+                Entry pa = lb.SelectedIndex >= 0 && lb.SelectedIndex < sugg.Count ? sugg[lb.SelectedIndex] : null;
+                if (replaceTarget == null && replaceNew == null && pa != null && pa.Action != null) { ov.DoAction(pa.Action); Close2(); return; }
+                if (replaceTarget == null && replaceNew == null && ov.BoxRoomHint(tb.Text) != null)
+                {
+                    if (ov.BoxRoom(tb.Text)) Close2();
                     return;
                 }
                 Entry picked = lb.SelectedIndex >= 0 && lb.SelectedIndex < sugg.Count ? sugg[lb.SelectedIndex] : null;
@@ -4257,7 +4349,9 @@ Puerto=8765
                 DebugEvent("sala: " + s);
             }));
             room = r;
+            roomMembers.Clear();
             r.Start(topic);
+            if (ManualRoom) r.Publish(Stamp(new Dictionary<string, object> { { "join", true }, { "t", UnixNow() } }));
             DebugEvent("sala: entrando a " + (ManualRoom ? "la sala " + cfg.Get("Sala", "") : "la del grupo de Steam") + (MyName.Length > 0 ? " como " + MyName : ""));
             UpdateRoomMenu();
         }
@@ -4271,9 +4365,68 @@ Puerto=8765
             return "alguien del grupo";
         }
 
+        // ---- maximo 4 por sala con codigo: cada PC tiene un id al azar; todos ven los avisos de entrada/salida
+        // en el mismo orden (ntfy los ordena), asi que todos coinciden en quienes son los 4 primeros.
+        const int MaxRoom = 4;
+        readonly List<string> roomMembers = new List<string>();
+        string InstallId
+        {
+            get
+            {
+                string id = cfg.Get("IdLocal", "");
+                if (id.Length == 0) { id = Guid.NewGuid().ToString("N").Substring(0, 10); SetCfg("IdLocal", id); }
+                return id;
+            }
+        }
+        static long UnixNow() { return (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds; }
+        int RoomCount { get { return Math.Min(roomMembers.Count, MaxRoom); } }
+
+        // al salir de una sala con codigo: avisar (asi libera el lugar)
+        void AnnounceLeave()
+        {
+            if (room == null || !ManualRoom) return;
+            Room.PublishNow(room.Topic, Stamp(new Dictionary<string, object> { { "leave", true }, { "t", UnixNow() }, { "from", room.Me } }));
+        }
+
+        // devuelve true si el aviso era de entrada/salida (no hay nada que anotar)
+        bool RoomMembership(Dictionary<string, object> op)
+        {
+            if (!ManualRoom) return false;
+            object w, tt;
+            op.TryGetValue("who", out w);
+            string who = (w ?? "").ToString();
+            bool join = op.ContainsKey("join"), leave = op.ContainsKey("leave");
+            if (!join && !leave) return false;
+            if (who.Length == 0) return true;
+            long t = op.TryGetValue("t", out tt) ? Convert.ToInt64(tt) : 0;
+            bool recent = UnixNow() - t < 120; // los avisos viejos (historial de la sala) no se muestran
+            bool me = who == InstallId;
+            string nm = SenderName(op);
+            if (join && !roomMembers.Contains(who))
+            {
+                roomMembers.Add(who);
+                int pos = roomMembers.IndexOf(who);
+                if (me && pos >= MaxRoom)
+                {
+                    DebugEvent("sala: llena (" + MaxRoom + "/" + MaxRoom + "), salgo");
+                    LeaveRoom();
+                    Feedback("La sala está llena (" + MaxRoom + "/" + MaxRoom + "): no pudiste entrar", Color.FromArgb(240, 170, 80), 8000);
+                    return true;
+                }
+                if (!me && recent && pos < MaxRoom) Feedback(nm + " entró a la sala (" + RoomCount + "/" + MaxRoom + ")", Color.FromArgb(130, 190, 255), 5000);
+            }
+            else if (leave && roomMembers.Remove(who))
+            {
+                if (!me && recent) Feedback(nm + " salió de la sala (" + RoomCount + "/" + MaxRoom + ")", Color.Silver, 5000);
+            }
+            Relayout();
+            return true;
+        }
+
         Dictionary<string, object> Stamp(Dictionary<string, object> op)
         {
             op["name"] = MyName;
+            if (ManualRoom) op["who"] = InstallId;
             if (!ManualRoom && steamMe.Length > 0 && steamLobby.Length > 0) op["h"] = Fingerprint(steamMe);
             return op;
         }
@@ -4284,6 +4437,10 @@ Puerto=8765
             op.TryGetValue("from", out from);
             op.TryGetValue("name", out name);
             op.TryGetValue("h", out h);
+            if (RoomMembership(op)) return;
+            // sala con codigo: lo que manda el 5to en adelante no se anota
+            object wo;
+            if (ManualRoom && op.TryGetValue("who", out wo) && wo != null && roomMembers.Contains(wo.ToString()) && roomMembers.IndexOf(wo.ToString()) >= MaxRoom) return;
             bool mine = (from ?? "").ToString() == r.Me
                      || (steamMe.Length > 0 && steamLobby.Length > 0 && (h ?? "").ToString() == Fingerprint(steamMe))
                      || (MyName.Length > 0 && (name ?? "").ToString() == MyName);
@@ -4334,13 +4491,14 @@ Puerto=8765
         {
             if (MyName.Length == 0 && !AskName()) return;
             string code = Room.NewCode();
+            AnnounceLeave();
             SetCfg("Sala", code);
             StopSteam();
             StartRoom();
             PublishAll();
-            try { Clipboard.SetText(code); } catch { }
-            MessageBox.Show("Sala creada. Código: " + code + "\n\n(ya está copiado: pegalo en el chat)\n\n" +
-                            "Tus amigos: clic derecho en el ícono \"D\" → Sala compartida → Unirse con código… y pegan el código.\n\n" +
+            try { Clipboard.SetText("sala " + code); } catch { }
+            MessageBox.Show("Sala creada. Código: " + code + "\n\n(ya está copiado como \"sala " + code + "\": pegalo en el chat)\n\n" +
+                            "Los demás: Shift+T y escriben \"sala " + code + "\" (o clic derecho en el ícono \"D\" → Sala compartida → Unirse con código…).\n\n" +
                             "Mientras uses código, la sala automática de Steam queda en pausa.",
                             "Sala compartida", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -4352,6 +4510,47 @@ Puerto=8765
             if (code.Length == 0) return;
             if (code.Length < 6) { MessageBox.Show("Ese código no parece válido.", "Sala compartida"); return; }
             if (MyName.Length == 0 && !AskName()) return;
+            JoinRoomCode(code);
+        }
+
+        // ---- sala desde el cuadro de escribir (sin salir del juego): "sala nueva", "sala <codigo>", "sala salir"
+        public string BoxRoomHint(string text)
+        {
+            var m = Regex.Match(Txt.Norm(text ?? ""), @"^sala\b\s*(.*)$");
+            if (!m.Success) return null;
+            string r = m.Groups[1].Value.Trim();
+            if (r.Length == 0) return ManualRoom ? "Estás en la sala " + cfg.Get("Sala", "") + " · \"sala salir\" · \"sala nueva\"" : "\"sala nueva\": crear · \"sala CÓDIGO\": entrar · \"sala salir\"";
+            if (Regex.IsMatch(r, @"^(nueva|crear|crea|new)$")) return "Enter: crear sala (el código queda copiado para el chat)";
+            if (Regex.IsMatch(r, @"^(salir|dejar|leave)$")) return "Enter: salir de la sala con código";
+            string code = Room.CleanCode(r);
+            return code.Length >= 6 ? "Enter: entrar a la sala " + code : "Código incompleto";
+        }
+        public bool BoxRoom(string text)
+        {
+            var m = Regex.Match(Txt.Norm(text ?? ""), @"^sala\b\s*(.*)$");
+            if (!m.Success) return false;
+            string r = m.Groups[1].Value.Trim();
+            if (MyName.Length == 0) SetCfg("Nombre", "Survivor " + new Random().Next(10, 100)); // sin ventana para preguntar (se cambia desde el menu)
+            if (Regex.IsMatch(r, @"^(nueva|crear|crea|new)$"))
+            {
+                string code = Room.NewCode();
+                AnnounceLeave();
+                SetCfg("Sala", code);
+                StopSteam(); StartRoom(); PublishAll();
+                try { Clipboard.SetText("sala " + code); } catch { }
+                Feedback("sala creada: " + code + " · copiado \"sala " + code + "\", pegalo en el chat (Ctrl+V)", Color.FromArgb(130, 190, 255), 15000);
+                return true;
+            }
+            if (Regex.IsMatch(r, @"^(salir|dejar|leave)$")) { if (ManualRoom) LeaveRoom(); return true; }
+            string c = Room.CleanCode(r);
+            if (c.Length < 6) return false;
+            JoinRoomCode(c);
+            return true;
+        }
+
+        void JoinRoomCode(string code)
+        {
+            AnnounceLeave();
             st.Clear(); // lo que hay en la sala reemplaza lo local
             st.Save(Path.Combine(dir, "estado.txt"));
             SetCfg("Sala", code);
@@ -4362,6 +4561,7 @@ Puerto=8765
 
         void LeaveRoom()
         {
+            AnnounceLeave();
             SetCfg("Sala", "");
             DebugEvent("sala: salí de la sala con código");
             StartRoom(); // si corresponde, vuelve la automatica (el vigia arranca en el proximo tick)
@@ -4393,6 +4593,21 @@ Puerto=8765
             if (steamProc == null) return "Automática: esperando que abras DBD";
             if (steamLobby.Length == 0) return "Automática: esperando grupo de Steam";
             return "Grupo de Steam" + (partyCount > 0 ? " (+" + partyCount + " amigo" + (partyCount > 1 ? "s" : "") + ")" : " (solo vos)") + conn;
+        }
+
+        public bool previewRoomLine; // solo para probar en la vista
+        bool ShowRoomLine { get { return !Regex.IsMatch(cfg.Get("MostrarSala", "si"), "^(no|n|false|0)$", RegexOptions.IgnoreCase); } }
+        ToolStripMenuItem roomLineItem;
+        bool roomHover; Rectangle roomRect; // icono de sala: se expande con el mouse encima
+        string RoomLine()
+        {
+            if (!ShowRoomLine || (Preview && !previewRoomLine) || (room == null && !Preview)) return null;
+            if (!ManualRoom && partyCount <= 0 && !Preview) return null;
+            if (!roomHover) return "👥";
+            string conn = roomStatus.StartsWith("conectad") ? "" : " · conectando…";
+            if (ManualRoom) return "👥 sala " + cfg.Get("Sala", "") + (roomMembers.Count > 0 ? " · " + RoomCount + "/" + MaxRoom : "") + conn;
+            if (partyCount > 0) return "👥 grupo de Steam +" + partyCount + conn;
+            return null;
         }
 
         void UpdateRoomMenu()
@@ -4448,6 +4663,8 @@ Puerto=8765
             roomMenu.DropDownItems.Add("-");
             roomMenu.DropDownItems.Add(new ToolStripMenuItem("Con código (para quien no juega por Steam):") { Enabled = false });
             roomMenu.DropDownItems.Add("Crear sala con código", null, (s, e) => CreateRoom());
+            roomLineItem = new ToolStripMenuItem("Mostrar en la lista si estoy en sala") { Checked = ShowRoomLine };
+            roomLineItem.Click += (s, e) => { SetCfg("MostrarSala", ShowRoomLine ? "no" : "si"); roomLineItem.Checked = ShowRoomLine; Relayout(); };
             roomMenu.DropDownItems.Add("Unirse con código…", null, (s, e) => JoinRoom());
             roomCopy = new ToolStripMenuItem("Copiar código", null, (s, e) =>
             {
@@ -4457,6 +4674,8 @@ Puerto=8765
             roomMenu.DropDownItems.Add("Cambiar mi nombre…", null, (s, e) => AskName());
             roomLeave = new ToolStripMenuItem("Salir de la sala con código", null, (s, e) => LeaveRoom());
             roomMenu.DropDownItems.Add(roomLeave);
+            roomMenu.DropDownItems.Add("-");
+            roomMenu.DropDownItems.Add(roomLineItem);
             menu.Items.Add(roomMenu);
             // ---- todo lo de la voz junto, en un submenu
             var voiceMenu = new ToolStripMenuItem("Voz (Whisper)");
@@ -4611,11 +4830,10 @@ Puerto=8765
             {
                 typeKeyDown = true;
                 // se cierra solo (para no quedar tomando el teclado sin que se note):
-                // si cambia la ventana del frente, si el juego se minimiza, o tras 30 s sin escribir nada
+                // si cambia la ventana del frente o si se minimiza el juego (sin limite de tiempo)
                 var fgNow = GetForegroundWindow();
                 int nowT = Environment.TickCount;
                 if (typeFromGame && typePrevFg != IntPtr.Zero && (fgNow != typePrevFg || IsIconic(typePrevFg))) { HideTypeBox("el juego dejó de estar al frente"); return; }
-                if (nowT - typeLastKey > 30000) { HideTypeBox("30 s sin escribir"); return; }
                 if (!typeFromGame && nowT - typeOpenedAt > 700)
                 {
                     if (typeRefFg == IntPtr.Zero) typeRefFg = fgNow;
@@ -5032,9 +5250,11 @@ Puerto=8765
             if (statusLine.Length > 0) bottom.Add(Tuple.Create(statusLine, Color.Orange));
             if (heardLine.Length > 0) bottom.Add(Tuple.Create(heardLine, Color.FromArgb(160, 160, 175)));
             if (feedback.Length > 0) bottom.Add(Tuple.Create(feedback, feedbackColor));
+            // siempre a la vista: si estas en una sala (linea chica, se apaga desde Sala compartida)
+            string rl = RoomLine();
+            if (rl != null) bottom.Add(Tuple.Create(rl, roomStatus.StartsWith("conectad") || !ManualRoom ? Color.FromArgb(110, 190, 125) : Color.FromArgb(220, 170, 90)));
             if (!any && ktext == null && bottom.Count == 0 && !helpShown)
-                bottom.Add(Tuple.Create((voice ? KeyName + " hablar" : "solo ver") + " · " + HelpKeyName + " ayuda" +
-                                        (room == null ? "" : ManualRoom ? " · sala " + cfg.Get("Sala", "") : ""), dim));
+                bottom.Add(Tuple.Create((voice ? KeyName + " hablar" : "solo ver") + " · " + HelpKeyName + " ayuda", dim));
 
             int contentW = blockW;
             // ayuda (mientras se mantiene la tecla de ayuda)
@@ -5078,6 +5298,8 @@ Puerto=8765
             }
             texts.AddRange(helpItems);
             texts.AddRange(bottomItems);
+            var rt = bottomItems.FirstOrDefault(b => b.T.StartsWith("👥"));
+            roomRect = rt == null ? Rectangle.Empty : new Rectangle(rt.P.X - 6, rt.P.Y - 4, rt.W + 12, M(rt.T, fSmall).Height + 8);
 
             var scr = Screen.PrimaryScreen.Bounds;
             int mx = cfg.GetInt("MargenX", 30), my = cfg.GetInt("MargenY", 140);
@@ -5226,9 +5448,19 @@ Puerto=8765
             }
         }
 
+        bool restartingForUpdate;
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             StopKeyHook();
+            // cerrar la app = salir de la sala con codigo (avisa a los demas y libera el lugar).
+            // Si se reinicia por una actualizacion, sigue adentro.
+            if (ManualRoom && !restartingForUpdate)
+            {
+                if (room != null) Room.PublishNow(room.Topic, Stamp(new Dictionary<string, object> { { "leave", true }, { "t", UnixNow() }, { "from", room.Me } }), 4000);
+                SetCfg("Sala", "");
+                DebugEvent("sala: salí al cerrar la app");
+            }
             st.Save(Path.Combine(dir, "estado.txt"));
             if (mic != null) mic.Stop();
             tray.Visible = false;
