@@ -1,8 +1,8 @@
 {
-    "version":  24,
-    "notes":  "Opcion en el menu: teclas solo con DBD en primer plano",
-    "date":  "2026-11-15 21:38",
+    "version":  25,
+    "notes":  "El cuadro para escribir se cierra al elegir",
+    "date":  "2026-11-15 21:40",
     "files":  {
-                  "DbdOverlay.exe":  "6f257a3fc48d548b4524c0217fd6360da42d7411e2b43f266190c11692023f77"
+                  "DbdOverlay.exe":  "2547f8f4cd3e485f6f10d4786df132f9b450f6c79e17ed9219fea65cfac865af"
               }
 }

@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 24;
+        public const int AppVersion = 25;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3295,7 +3295,7 @@ Puerto=8765
                 lb = new ListBox { Dock = DockStyle.Top, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(18, 18, 24), ForeColor = Color.Gainsboro,
                                    DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 24, Height = 0, IntegralHeight = false, Font = new Font("Segoe UI", 10.5f) };
                 hint = new Label { Dock = DockStyle.Top, Height = 36, ForeColor = Color.FromArgb(140, 140, 155), Font = new Font("Segoe UI", 8.5f),
-                                   Text = "Enter: anotar · Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\nTambién comandos: \"quitar surge\", \"el killer es nurse\", \"addon rojo\"" };
+                                   Text = "Enter: anotar y cerrar · Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\nTambién comandos: \"quitar surge\", \"el killer es nurse\", \"addon rojo\"" };
                 Controls.Add(hint); Controls.Add(lb); Controls.Add(tb);
                 tb.TextChanged += (s, e) => Refresh2();
                 lb.DrawItem += DrawSugg;
@@ -3350,7 +3350,7 @@ Puerto=8765
             {
                 Entry picked = lb.SelectedIndex >= 0 && lb.SelectedIndex < sugg.Count ? sugg[lb.SelectedIndex] : null;
                 ov.SubmitTyped(tb.Text, picked, doubt, byArrows);
-                tb.Text = ""; // queda abierto para anotar otra cosa; Esc cierra
+                tb.Text = ""; Hide(); // elegido: se cierra (T para anotar otra cosa)
             }
 
             protected override void OnPaint(PaintEventArgs e)
