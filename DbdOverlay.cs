@@ -1145,8 +1145,20 @@ Puerto=8765
         }
 
         // devuelve la descripcion de lo que hizo
+        // Whisper escribe "addon" como "a Don", "lado", "un don"... (sobre todo antes de un color)
+        const string ColorWords = @"(?:rojo|roja|rojos|violeta|violetas|morado|morada|p[uú]rpura|lila|verde|verdes|amarill[oa]|marr[oó]n|caf[eé]|iridiscente)";
+        static string FixAddonWord(string raw)
+        {
+            raw = Regex.Replace(raw, @"\b(?:a\s+don|adon|ad\s+on|a\s+dom|el\s+don|un\s+don|la\s+don|lado|a\s+dones|adones)\b(?=[\s,]+(?:(?:ese|que|de|del)\s+)?" + ColorWords + @"\b|[\s,]+(?:ese|que)\b)",
+                                "addon", RegexOptions.IgnoreCase);
+            // "tiene (el/uno) violeta" = "tiene addon violeta"
+            raw = Regex.Replace(raw, @"^(\W*(?:tiene|tenia|tenía|lleva|trajo)\s+)(?:(?:el|un|uno|una)\s+)?(?=" + ColorWords + @"\b)", "$1addon ", RegexOptions.IgnoreCase);
+            return raw;
+        }
+
         string ApplyInner(string raw)
         {
+            raw = FixAddonWord(raw);
             string t = Txt.Norm(raw);
             if (t.Length == 0) return "no escuché nada";
             // borrar todo NO se hace por voz (Whisper podria entenderlo sin querer): se usa la tecla
@@ -2226,7 +2238,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 18;
+        public const int AppVersion = 19;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3034,6 +3046,27 @@ Puerto=8765
             }) { IsBackground = true }.Start();
         }
 
+        // ---- lo que entendio Whisper: se anota todo en logs\escuchado.txt y (opcional) se muestra un momento abajo del widget
+        string heardLine = ""; int heardUntil;
+        bool ShowHeard { get { return !Regex.IsMatch(cfg.Get("VerTranscripcion", "si"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
+
+        void Heard(string src, string text, string res, bool show)
+        {
+            try
+            {
+                string path = Path.Combine(dir, "logs", "escuchado.txt");
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                var fi = new FileInfo(path);
+                if (fi.Exists && fi.Length > 256 * 1024) File.Delete(path);
+                File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss") + "  [" + src + "]  \"" + text.Trim() + "\"  ->  " + res + "\r\n", Encoding.UTF8);
+            }
+            catch { }
+            if (!show || !ShowHeard) return;
+            heardLine = "🎙 [" + src + "] “" + text.Trim() + "” → " + res;
+            heardUntil = Environment.TickCount + 7000;
+            Relayout();
+        }
+
         void OnHandsHeard(string text, double secs, int ms)
         {
             string raw = text.Trim(), nt = Txt.Norm(text);
@@ -3041,9 +3074,9 @@ Puerto=8765
             sb.Append("micrófono: " + secs.ToString("0.0", CultureInfo.InvariantCulture) + " s, Whisper " + ms + " ms\r\n");
             sb.Append("whisper: \"" + raw + "\"\r\n");
             var m = HandsRx.Match(nt);
-            if (!m.Success) { sb.Append("resultado: (no es un comando: se ignora)"); Debug(sb.ToString()); return; }
-            if (raw.StartsWith("¿") || raw.EndsWith("?")) { sb.Append("resultado: (es una pregunta: se ignora)"); Debug(sb.ToString()); return; }
-            if (Regex.IsMatch(nt.Substring(0, m.Index), @"\b(no|ni|nunca|tampoco)\s*$")) { sb.Append("resultado: (frase negativa: se ignora)"); Debug(sb.ToString()); return; }
+            if (!m.Success) { sb.Append("resultado: (no es un comando: se ignora)"); Debug(sb.ToString()); Heard("sin tecla", raw, "no es un comando, se ignora", false); return; }
+            if (raw.StartsWith("¿") || raw.EndsWith("?")) { sb.Append("resultado: (es una pregunta: se ignora)"); Debug(sb.ToString()); Heard("sin tecla", raw, "es una pregunta, se ignora", false); return; }
+            if (Regex.IsMatch(nt.Substring(0, m.Index), @"\b(no|ni|nunca|tampoco)\s*$")) { sb.Append("resultado: (frase negativa: se ignora)"); Debug(sb.ToString()); Heard("sin tecla", raw, "frase negativa, se ignora", false); return; }
             sb.Append("antes:   " + st.Describe() + "\r\n");
             var before = st.Snapshot();
             st.Trace.Clear();
@@ -3053,7 +3086,7 @@ Puerto=8765
             sb.Append("resultado: " + what + "\r\ndespues: " + st.Describe());
             Debug(sb.ToString());
             Log("[sin tecla] " + raw, what);
-            if (what.StartsWith("no ") || what.Contains("ya estaba")) return; // lo que no sirvio no molesta
+            if (what.StartsWith("no ") || what.Contains("ya estaba")) { Heard("sin tecla", raw, what, false); return; } // sin anotar: solo se ve si "mostrar lo que entiende" esta prendido
             st.Save(Path.Combine(dir, "estado.txt"));
             PublishDiff(before);
             Feedback("🎙 “" + raw + "” → " + what, Color.FromArgb(150, 220, 150), 6000);
@@ -3066,7 +3099,7 @@ Puerto=8765
             var sb = new StringBuilder("==== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " (DISCORD) ====\r\n");
             sb.Append("audio de la PC: " + secs.ToString("0.0", CultureInfo.InvariantCulture) + " s, Whisper " + ms + " ms\r\n");
             sb.Append("whisper: \"" + text.Trim() + "\"\r\n");
-            if (!m.Success) { sb.Append("resultado: (no es un \"tiene…\": se ignora)"); Debug(sb.ToString()); return; }
+            if (!m.Success) { sb.Append("resultado: (no es un \"tiene…\": se ignora)"); Debug(sb.ToString()); Heard("discord", text, "se ignora", false); return; }
             sb.Append("antes:   " + st.Describe() + "\r\n");
             var before = st.Snapshot();
             st.Trace.Clear();
@@ -3378,6 +3411,15 @@ Puerto=8765
             handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)") { Checked = HandsOn };
             handsItem.Click += (s, e) => SetHands(!HandsOn);
             menu.Items.Add(handsItem);
+            var heardItem = new ToolStripMenuItem("Mostrar lo que entiende Whisper");
+            heardItem.Click += (s, e) => { SetCfg("VerTranscripcion", ShowHeard ? "no" : "si"); Feedback(ShowHeard ? "voy a mostrar lo que entiendo" : "ya no muestro lo que entiendo", Color.Silver, 3000); };
+            menu.Items.Add(heardItem);
+            menu.Items.Add("Ver todo lo que escuchó…", null, (s, e) =>
+            {
+                string path = Path.Combine(dir, "logs", "escuchado.txt");
+                try { if (!File.Exists(path)) File.WriteAllText(path, "", Encoding.UTF8); Process.Start("notepad.exe", "\"" + path + "\""); } catch { }
+            });
+            menu.Opening += (s, e) => { heardItem.Checked = ShowHeard; };
             // tamaño de los íconos (los addons y la ofrenda se escalan junto con los perks)
             var sizeMenu = new ToolStripMenuItem("Tamaño de los íconos");
             var sizes = new[] { Tuple.Create("Chico", 40), Tuple.Create("Normal", 48), Tuple.Create("Grande", 60), Tuple.Create("Muy grande", 72), Tuple.Create("Enorme", 88), Tuple.Create("Gigante", 104) };
@@ -3535,6 +3577,7 @@ Puerto=8765
             }
 
             if (feedback.Length > 0 && now - feedbackUntil >= 0) { feedback = ""; Relayout(); }
+            if (heardLine.Length > 0 && now - heardUntil >= 0) { heardLine = ""; Relayout(); }
         }
 
         int clearStart, undoUntil;
@@ -3686,6 +3729,7 @@ Puerto=8765
                     sb.Append("despues: " + st.Describe());
                     Debug(sb.ToString());
                     Log(text, what);
+                    Heard(KeyName, text, what, false);
                     bool ok = !what.StartsWith("no ");
                     if (ok) st.Save(Path.Combine(dir, "estado.txt"));
                     Feedback("“" + text.Trim() + "” → " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), ok ? 5000 : 7000);
@@ -3852,6 +3896,7 @@ Puerto=8765
             if (talking) bottom.Add(Tuple.Create("● Escuchando…", Color.FromArgb(255, 80, 80)));
             else if (busy) bottom.Add(Tuple.Create("… Procesando", Color.Khaki));
             if (statusLine.Length > 0) bottom.Add(Tuple.Create(statusLine, Color.Orange));
+            if (heardLine.Length > 0) bottom.Add(Tuple.Create(heardLine, Color.FromArgb(160, 160, 175)));
             if (feedback.Length > 0) bottom.Add(Tuple.Create(feedback, feedbackColor));
             if (!any && ktext == null && bottom.Count == 0 && !helpShown)
                 bottom.Add(Tuple.Create((voice ? KeyName + " hablar" : "solo ver") + " · " + HelpKeyName + " ayuda" +

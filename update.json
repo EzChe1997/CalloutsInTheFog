@@ -1,8 +1,8 @@
 {
-    "version":  18,
-    "notes":  "Addons por color de rareza (rojo, violeta, verde, amarillo, marron)",
-    "date":  "2026-11-15 20:54",
+    "version":  19,
+    "notes":  "Ver lo que entiende Whisper; addon mal transcripto (a Don, lado) y addon por color sin decir addon",
+    "date":  "2026-11-15 21:02",
     "files":  {
-                  "DbdOverlay.exe":  "18dd82f4ab84bc9579b8a9da6346378ef03c2b6111e83425bb8048cb2bb193b6"
+                  "DbdOverlay.exe":  "c87e3db501d25a1b01bfc7e8d8a76370a15169b841d52c5c8abfafcc545accb6"
               }
 }
