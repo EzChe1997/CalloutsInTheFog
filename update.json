@@ -1,8 +1,8 @@
 {
-    "version":  27,
-    "notes":  "Combinacion para escribir configurable desde el menu (por defecto Ctrl+T)",
-    "date":  "2026-11-15 21:51",
+    "version":  28,
+    "notes":  "Sin sonido de Windows al abrir el cuadro para escribir",
+    "date":  "2026-11-15 21:55",
     "files":  {
-                  "DbdOverlay.exe":  "2d7c88c144d25933fd4f4730f48b8e73cd6c5dd81726fa7544cab51ab9db0f2c"
+                  "DbdOverlay.exe":  "48a0afc4e155f993764ef1913f67cdf2e92637ab4f8139c74b7992d898a4fc4b"
               }
 }

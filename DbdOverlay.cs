@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 27;
+        public const int AppVersion = 28;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3182,7 +3182,7 @@ Puerto=8765
         }
 
         // ---- escribir en vez de hablar: cuadro con autocompletado (solo con el cursor libre: menu de ESC, lobby, fuera del juego)
-        int vkType; bool typeKeyDown, typeShift, typeCtrl, typeAlt;
+        int vkType; bool typeKeyDown, typeShift, typeCtrl, typeAlt, typePending;
         string typeKeyName = "Ctrl+T";
 
         // "Shift+T", "Ctrl+T", "Alt+T", "Ctrl+Shift+T" o una tecla sola ("T")
@@ -3230,8 +3230,9 @@ Puerto=8765
             x = Math.Max(scr.Left, Math.Min(x, scr.Right - typeBox.Width));
             typeBox.Location = new Point(x, Math.Max(scr.Top, Math.Min(b.Top, scr.Bottom - typeBox.Height)));
             typeBox.Open();
-            // el juego tiene el foco: Windows solo deja pasarlo si "se apreto una tecla" (Alt)
-            keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero);
+            // el juego tiene el foco: Windows solo deja pasarlo si "se apreto una tecla". Se usa F24 (no existe en el teclado):
+            // con Alt, Windows lo tomaba como Alt+T (Shift+Alt+T) y hacia el sonido de error
+            keybd_event(0x87, 0, 0, UIntPtr.Zero); keybd_event(0x87, 0, 2, UIntPtr.Zero);
             SetForegroundWindow(typeBox.Handle);
             typeBox.Activate(); typeBox.FocusText();
         }
@@ -3901,7 +3902,9 @@ Puerto=8765
             if (typeBox != null && typeBox.Visible) { typeKeyDown = true; return; }
             keysGate = !KeysOnlyInDbd || DbdInFront();
             bool tk = vkType != 0 && TypeComboDown();
-            if (tk && !typeKeyDown && !talking && CursorFree()) OpenTypeBox();
+            // se abre al soltar la T: asi la tecla no queda apretada contra el cuadro ni contra el juego
+            if (tk && !typeKeyDown && !talking && CursorFree()) typePending = true;
+            if (typePending && (GetAsyncKeyState(vkType) & 0x8000) == 0) { typePending = false; if (DbdInFront() || !KeysOnlyInDbd) OpenTypeBox(); }
             typeKeyDown = tk;
             int now = Environment.TickCount;
             bool down = HotKey(vkTalk);
