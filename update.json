@@ -1,8 +1,8 @@
 {
-    "version":  30,
-    "notes":  "Teclas configurables (apretando la combinacion), voz on/off, menu de voz agrupado, Shift+V",
-    "date":  "2026-11-15 22:20",
+    "version":  31,
+    "notes":  "Confirmacion al cambiar de killer (borra addons), etiquetas KILLER/PERK/ADDON/OFRENDA, dueno del perk, iconos de perks nuevos, teclas por defecto con Shift, Shift+Retroceso",
+    "date":  "2026-11-15 22:47",
     "files":  {
-                  "DbdOverlay.exe":  "082276f67e843acf69d0e448fab9cf1ea39eec5839669bd504f1724db75a8161"
+                  "DbdOverlay.exe":  "0929c9f426c68ec1c5159466315a3073aa41104579af5aea60ad0cfec8fb174c"
               }
 }

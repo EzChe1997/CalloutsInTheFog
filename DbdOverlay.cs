@@ -39,14 +39,25 @@ namespace DbdOverlay
 
 # Tecla que hay que MANTENER apretada mientras hablas.
 # Ejemplos: Alt, AltIzq, AltDer, F8, V, XButton1 (boton lateral de atras del mouse), XButton2, Capital (Bloq Mayus)
-Tecla=Alt
+Tecla=Shift+V
 
 # Tecla para borrar todo: hay que MANTENERLA 1 segundo. Despues, un toque rapido la deshace (por unos segundos).
 # (Por voz no se puede borrar todo, para que Whisper no lo haga sin querer.)
-TeclaLimpiar=G
+TeclaLimpiar=Shift+G
 
 # Tecla para ver la ayuda con los comandos (mientras se mantiene apretada)
-TeclaAyuda=H
+TeclaAyuda=Shift+H
+
+# Combinacion para abrir el cuadro de escribir (en vez de hablar)
+TeclaEscribir=Shift+T
+
+# Las teclas solo funcionan con DBD en primer plano (si/no). Todas se cambian desde el menu del icono: Teclas
+TeclasSoloEnDBD=si
+
+# Reconocimiento de voz (si/no). Apagado no corre Whisper ni se usa el microfono
+Voz=no
+EscucharDiscord=si
+SinTecla=no
 
 # Microfono: vacio = el predeterminado de Windows. Si no, el principio del nombre como lo muestra Windows,
 # por ejemplo: Microfono=Micrófono (NVIDIA Broadcast)
@@ -55,9 +66,12 @@ Microfono=
 # Mostrar los nombres de perks/addons al lado del rombo (si/no). Tambien desde el menu del icono o diciendo ""mostrar nombres""
 Nombres=no
 # Tecla opcional para mostrar/ocultar nombres (vacio = ninguna)
-TeclaNombres=
+TeclaNombres=Shift+M
 # Tamano de cada perk en pixeles
-TamanoPerk=48
+TamanoPerk=72
+# Tamano del nombre del killer y escala de todo el widget (%)
+TamanoKiller=12
+Escala=100
 
 # Posicion: arriba-derecha, arriba-izquierda, abajo-derecha, abajo-izquierda
 Posicion=arriba-derecha
@@ -246,7 +260,7 @@ Puerto=8765
         // clave para cruzar nombres con los archivos de la wiki
         public static string FileKey(string s)
         {
-            s = Regex.Replace(s, @"^(T_)?icons?(Perks|Addon|Favors)_|\.png$", "", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @"^(T_UI_|T_)?icons?(Perks|Addon|Favors)_|\.png$", "", RegexOptions.IgnoreCase); // formato viejo (IconPerks_) y nuevo (T_UI_iconsPerks_)
             var f = s.ToLowerInvariant().Normalize(NormalizationForm.FormD);
             var sb = new StringBuilder();
             foreach (char ch in f) if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) sb.Append(ch);
@@ -276,6 +290,7 @@ Puerto=8765
         public string Icon;                                  // archivo en deadbydaylight.wiki.gg/images/
         public HashSet<string> Desc = new HashSet<string>(); // palabras de la descripcion en espanol
         public string NameEs, Info, InfoEn;                  // nombre en espanol y descripciones (espanol / ingles) para leer (hover)
+        public string Owner;                                 // perks: el personaje dueño (vacio = perk general)
         public List<Key> Keys = new List<Key>();
         public void AddKey(string s)
         {
@@ -420,17 +435,21 @@ Puerto=8765
                 {
                     var js = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
                     var names = new List<string>();
-                    string cont = "";
-                    for (int guard = 0; guard < 20; guard++)
+                    // varios prefijos separados por | (la wiki usa "IconPerks_x" para lo viejo y "T_UI_iconsPerks_X" para lo nuevo)
+                    foreach (var pre in prefix.Split('|'))
                     {
-                        string url = "https://deadbydaylight.wiki.gg/api.php?action=query&list=allimages&aiprefix=" + prefix +
-                                     "&ailimit=500&format=json" + (cont.Length > 0 ? "&aicontinue=" + Uri.EscapeDataString(cont) : "");
-                        var d = js.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(HttpBytes(url)));
-                        var q = (Dictionary<string, object>)d["query"];
-                        foreach (Dictionary<string, object> i in (System.Collections.ArrayList)q["allimages"]) names.Add(i["name"].ToString());
-                        object c;
-                        if (d.TryGetValue("continue", out c)) cont = ((Dictionary<string, object>)c)["aicontinue"].ToString();
-                        else break;
+                        string cont = "";
+                        for (int guard = 0; guard < 20; guard++)
+                        {
+                            string url = "https://deadbydaylight.wiki.gg/api.php?action=query&list=allimages&aiprefix=" + pre +
+                                         "&ailimit=500&format=json" + (cont.Length > 0 ? "&aicontinue=" + Uri.EscapeDataString(cont) : "");
+                            var d = js.Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(HttpBytes(url)));
+                            var q = (Dictionary<string, object>)d["query"];
+                            foreach (Dictionary<string, object> i in (System.Collections.ArrayList)q["allimages"]) names.Add(i["name"].ToString());
+                            object c;
+                            if (d.TryGetValue("continue", out c)) cont = ((Dictionary<string, object>)c)["aicontinue"].ToString();
+                            else break;
+                        }
                     }
                     if (names.Count > 0) File.WriteAllLines(path, names, Encoding.UTF8);
                 }
@@ -556,17 +575,19 @@ Puerto=8765
             Dictionary<string, object> perksEs = null;
             try { perksEs = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "perks_es.json", "https://dbd.tricky.lol/api/perks?role=killer&locale=es")); }
             catch { }
-            var perkIcons = KeyMap(WikiList(dir, "wiki_perks.txt", "IconPerks_"));
-            var addonIcons = KeyMap(WikiList(dir, "wiki_addons.txt", "IconAddon_"));
+            var perkIcons = KeyMap(WikiList(dir, "wiki_perks2.txt", "IconPerks_|T_UI_iconsPerks_"));
+            var addonIcons = KeyMap(WikiList(dir, "wiki_addons2.txt", "IconAddon_|T_UI_iconAddon_"));
 
             var c = new Catalog();
             var byItem = new Dictionary<string, string>();
+            var charName = new Dictionary<string, string>();
             foreach (var kv in chars)
             {
                 var d = kv.Value as Dictionary<string, object>;
                 if (d == null) continue;
                 string name = WebUtility.HtmlDecode(S(d, "name"));
                 var e = new Entry { K = Kind.Killer, Name = name };
+                charName[kv.Key] = name;
                 e.AddKey(name);
                 string shortName = Regex.Replace(name, "^The ", "");
                 e.AddKey(shortName);
@@ -583,6 +604,7 @@ Puerto=8765
                 if (d == null) continue;
                 string name = WebUtility.HtmlDecode(S(d, "name"));
                 var e = new Entry { K = Kind.Perk, Name = name };
+                string owner; if (charName.TryGetValue(S(d, "character"), out owner)) e.Owner = owner;
                 e.AddKey(name);
                 int ci = name.IndexOf(':');
                 if (ci > 0) e.AddKey(name.Substring(ci + 1));
@@ -631,7 +653,7 @@ Puerto=8765
                 Dictionary<string, object> offsEs = null;
                 try { offsEs = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "offerings_es.json", "https://dbd.tricky.lol/api/offerings?locale=es")); }
                 catch { }
-                var offIcons = KeyMap(WikiList(dir, "wiki_ofrendas.txt", "IconFavors_"));
+                var offIcons = KeyMap(WikiList(dir, "wiki_ofrendas2.txt", "IconFavors_|T_UI_iconsFavors_"));
                 foreach (var kv in offs)
                 {
                     var d = kv.Value as Dictionary<string, object>;
@@ -687,7 +709,7 @@ Puerto=8765
         public const double Threshold = 0.66;
 
         public State(Catalog c) { cat = c; }
-        public string ClearKeyName = "G";
+        public string ClearKeyName = "Shift+G";
 
         // sospechas: "creo que tiene X" (se ven semitransparentes con "?"), en orden de cuando se dijeron
         public List<Entry> Doubt = new List<Entry>();
@@ -969,9 +991,32 @@ Puerto=8765
             return r;
         }
 
+        // cambio de killer: pide confirmacion si ya habia uno; al cambiar se van los addons (y sus sospechas) del anterior
+        public Entry PendingKiller; public int PendingUntil;
+        public bool ConfirmedKiller; // el cuadro de escribir ya pregunto
+        public string ChangeKiller(Entry k)
+        {
+            PendingKiller = null;
+            bool had = Killer != null && Killer != k;
+            int n = Addons.Count;
+            Killer = k;
+            if (had && n > 0) { foreach (var a in Addons) Doubt.Remove(a); Addons.Clear(); }
+            return "killer: " + k.Name + (had && n > 0 ? " · addons borrados" : "");
+        }
+
         string AddOne(Entry e)
         {
-            if (e.K == Kind.Killer) { Killer = e; return "killer: " + e.Name; }
+            if (e.K == Kind.Killer)
+            {
+                if (Killer == e) return "el killer ya es " + e.Name;
+                // ya habia otro killer: se pide confirmacion (cambiar borra los addons del anterior)
+                if (Killer != null && !ConfirmedKiller)
+                {
+                    PendingKiller = e; PendingUntil = Environment.TickCount + 20000;
+                    return "¿cambiar " + Killer.Name + " por " + e.Name + "? se borran los addons · decí/escribí \"sí\"";
+                }
+                return ChangeKiller(e);
+            }
             if (e.K == Kind.Offering)
             {
                 if (Offering == e || (Offering != null && Offering.Name == e.Name))
@@ -1121,6 +1166,11 @@ Puerto=8765
             string t0 = Txt.Norm(raw);
             // "no" a secas: descarta la sugerencia (¿...?) o, si no habia, deshace lo ultimo
             bool bareNo = Regex.IsMatch(t0, @"^(no|no no|nop|nah|negativo)$");
+            if (bareNo && PendingKiller != null)
+            {
+                PendingKiller = null;
+                return "ok, sigue " + (Killer != null ? Killer.Name : "sin killer");
+            }
             if (bareNo && lastGuess != null)
             {
                 lastGuess = null; lastFail = null;
@@ -1180,6 +1230,15 @@ Puerto=8765
             if (Regex.IsMatch(t, @"\b(nueva partida|otra partida|borra(r)? todo|limpia(r)?( todo)?|reinicia(r)?|reset)\b"))
                 return "no borro por voz: mantené " + ClearKeyName + " 1 segundo";
             ReloadAliases();
+
+            // cambio de killer pendiente: "sí" lo confirma (y borra los addons), cualquier otra cosa lo cancela
+            if (PendingKiller != null)
+            {
+                var pk = PendingKiller; PendingKiller = null;
+                if (Environment.TickCount - PendingUntil < 0 && Regex.IsMatch(t, @"^(?:si|si si|dale|confirmo|confirmar|cambia(?:r|lo)?|ok|okey|si cambia(?:r|lo)?)$"))
+                    return ChangeKiller(pk);
+                if (Regex.IsMatch(t, @"^(?:no|nah|cancela(?:r)?|deja(?:lo)?)$")) return "sigue " + (Killer != null ? Killer.Name : "sin killer");
+            }
 
             // muletillas al principio: "ah ...", "anotá (que) ...", "poneme ..."
             t = Regex.Replace(t, @"^(?:(?:ah|eh|bueno|ok|anota(?:me|le)?|anata|anote|pone(?:me|le)?|agrega(?:me|le)?)\s+(?:(?:de|que)\s+)?)+", "");
@@ -2253,7 +2312,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 30;
+        public const int AppVersion = 31;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2365,7 +2424,7 @@ Puerto=8765
         int port, vkTalk, vkClear, vkNames, vkHelp;
         bool talkShift, talkCtrl, talkAlt;
         bool helpShown;
-        string HelpKeyName { get { return cfg.Get("TeclaAyuda", "H"); } }
+        string HelpKeyName { get { return cfg.Get("TeclaAyuda", "Shift+H"); } }
 
         // texto, color, es titulo
         List<Tuple<string, Color, bool>> HelpLines()
@@ -2485,12 +2544,12 @@ Puerto=8765
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             MakeFonts();
 
-            string tn; ParseCombo(cfg.Get("Tecla", "Alt"), out vkTalk, out talkShift, out talkCtrl, out talkAlt, out tn);
+            string tn; ParseCombo(cfg.Get("Tecla", "Shift+V"), out vkTalk, out talkShift, out talkCtrl, out talkAlt, out tn);
             if (vkTalk == 0) vkTalk = (int)Keys.Menu;
-            ParseCombo(cfg.Get("TeclaLimpiar", "G"), out vkClear, out clearSh, out clearCt, out clearAl, out tn);
-            SetTypeKey(cfg.Get("TeclaEscribir", "Ctrl+T"));
-            ParseCombo(cfg.Get("TeclaNombres", ""), out vkNames, out namesSh, out namesCt, out namesAl, out tn);
-            ParseCombo(cfg.Get("TeclaAyuda", "H"), out vkHelp, out helpSh, out helpCt, out helpAl, out tn);
+            ParseCombo(cfg.Get("TeclaLimpiar", "Shift+G"), out vkClear, out clearSh, out clearCt, out clearAl, out tn);
+            SetTypeKey(cfg.Get("TeclaEscribir", "Shift+T"));
+            ParseCombo(cfg.Get("TeclaNombres", "Shift+M"), out vkNames, out namesSh, out namesCt, out namesAl, out tn);
+            ParseCombo(cfg.Get("TeclaAyuda", "Shift+H"), out vkHelp, out helpSh, out helpCt, out helpAl, out tn);
             showNames = Regex.IsMatch(cfg.Get("Nombres", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase);
             port = cfg.GetInt("Puerto", 8765);
 
@@ -2498,12 +2557,12 @@ Puerto=8765
             catch (Exception ex) { MessageBox.Show(ex.Message, "DBD Overlay"); Environment.Exit(1); }
             st = new State(cat);
             st.AliasPath = Path.Combine(dir, "apodos.txt");
-            st.ClearKeyName = cfg.Get("TeclaLimpiar", "G");
+            st.ClearKeyName = cfg.Get("TeclaLimpiar", "Shift+G");
             st.ReloadAliases();
             st.LoadFrom(Path.Combine(dir, "estado.txt"));
 
             Debug("==== INICIO " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ====\r\n" + cat.Info + ", apodos: " + st.AliasCount +
-                  "\r\nteclas: hablar=" + KeyName + " borrar=" + cfg.Get("TeclaLimpiar", "G") + " ayuda=" + cfg.Get("TeclaAyuda", "H") +
+                  "\r\nteclas: hablar=" + KeyName + " borrar=" + cfg.Get("TeclaLimpiar", "Shift+G") + " ayuda=" + cfg.Get("TeclaAyuda", "Shift+H") +
                   " · microfono=" + cfg.Get("Microfono", "") + "\r\nestado cargado: " + st.Describe());
             SetupTray();
             foreach (var si in StatusIcons) GetIcon(si.Item2); // iconos de estados: se bajan una vez
@@ -2548,7 +2607,7 @@ Puerto=8765
             Relayout();
         }
 
-        string KeyName { get { return cfg.Get("Tecla", "Alt"); } }
+        string KeyName { get { return cfg.Get("Tecla", "Shift+V"); } }
 
         // ---- voz: Whisper es opcional. Sin Whisper la app queda en "solo ver" (sirve para la sala compartida)
         bool voice, talkWarned, installing;
@@ -2577,7 +2636,7 @@ Puerto=8765
         }
 
         // ---- voz on/off (menu del icono): apagada no corre Whisper, ni el microfono, ni Discord, ni "sin tecla"
-        bool VoiceOn { get { return !Regex.IsMatch(cfg.Get("Voz", "si"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
+        bool VoiceOn { get { return !Regex.IsMatch(cfg.Get("Voz", "no"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
         Process whisperProc;
 
         void SetVoice(bool on)
@@ -2774,7 +2833,7 @@ Puerto=8765
         Font killerFont;
         Font KillerFont()
         {
-            float sz = Math.Max(5f, cfg.GetInt("TamanoKiller", 10) * UiScale);
+            float sz = Math.Max(5f, cfg.GetInt("TamanoKiller", 12) * UiScale);
             if (killerFont == null || Math.Abs(killerFont.Size - sz) > 0.01f) killerFont = new Font("Segoe UI", sz, FontStyle.Bold);
             return killerFont;
         }
@@ -2795,7 +2854,7 @@ Puerto=8765
             m.DropDownOpening += (s, e) =>
             {
                 show.Checked = KillerOn;
-                int cur = cfg.GetInt("TamanoKiller", 10);
+                int cur = cfg.GetInt("TamanoKiller", 12);
                 foreach (var o in m.DropDownItems.OfType<ToolStripMenuItem>()) if (o.Tag is int) o.Checked = (int)o.Tag == cur;
             };
             return m;
@@ -2895,7 +2954,7 @@ Puerto=8765
             if (tip != null && tip.Visible && tip.Current == over) return;
             if (tip == null) tip = new HoverTip(new Font("Segoe UI", fItem.Size, FontStyle.Bold), fSmall, GetIcon);
             string title = DName(over);
-            string sub = over.K == Kind.Perk ? "Perk" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "")
+            string sub = over.K == Kind.Perk ? "Perk" + (!string.IsNullOrEmpty(over.Owner) ? " de " + over.Owner : " general")
                        : over.K == Kind.Offering ? "Ofrenda" : "Addon" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "");
             if (st.IsDoubt(over)) sub += " · sospecha (sin confirmar)";
             Color tc = over.K == Kind.Perk ? Color.WhiteSmoke : RarityColor(over.Rarity);
@@ -3109,7 +3168,7 @@ Puerto=8765
         volatile bool listening;
         ToolStripMenuItem listenItem;
         static readonly Regex HeardRx = new Regex(@"\b(tiene|trajo|quemo|ofrenda|tenia)\b.*$");
-        bool ListenOn { get { return Regex.IsMatch(cfg.Get("EscucharDiscord", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase); } }
+        bool ListenOn { get { return Regex.IsMatch(cfg.Get("EscucharDiscord", "si"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase); } }
 
         void SetListen(bool v)
         {
@@ -3231,22 +3290,22 @@ Puerto=8765
         void LoadKeys()
         {
             string n;
-            ParseCombo(cfg.Get("Tecla", "Alt"), out vkTalk, out talkShift, out talkCtrl, out talkAlt, out n);
+            ParseCombo(cfg.Get("Tecla", "Shift+V"), out vkTalk, out talkShift, out talkCtrl, out talkAlt, out n);
             if (vkTalk == 0) vkTalk = (int)Keys.Menu;
-            ParseCombo(cfg.Get("TeclaLimpiar", "G"), out vkClear, out clearSh, out clearCt, out clearAl, out n);
-            ParseCombo(cfg.Get("TeclaAyuda", "H"), out vkHelp, out helpSh, out helpCt, out helpAl, out n);
-            ParseCombo(cfg.Get("TeclaNombres", ""), out vkNames, out namesSh, out namesCt, out namesAl, out n);
-            SetTypeKey(cfg.Get("TeclaEscribir", "Ctrl+T"));
-            st.ClearKeyName = cfg.Get("TeclaLimpiar", "G");
+            ParseCombo(cfg.Get("TeclaLimpiar", "Shift+G"), out vkClear, out clearSh, out clearCt, out clearAl, out n);
+            ParseCombo(cfg.Get("TeclaAyuda", "Shift+H"), out vkHelp, out helpSh, out helpCt, out helpAl, out n);
+            ParseCombo(cfg.Get("TeclaNombres", "Shift+M"), out vkNames, out namesSh, out namesCt, out namesAl, out n);
+            SetTypeKey(cfg.Get("TeclaEscribir", "Shift+T"));
+            st.ClearKeyName = cfg.Get("TeclaLimpiar", "Shift+G");
         }
 
         // accion -> (clave de config, valor por defecto, se puede dejar sin tecla)
         static readonly Tuple<string, string, string, bool>[] KeyActions = {
-            Tuple.Create("Hablar (mantener)", "Tecla", "Alt", false),
-            Tuple.Create("Escribir", "TeclaEscribir", "Ctrl+T", true),
-            Tuple.Create("Borrar lista (mantener 1 s)", "TeclaLimpiar", "G", true),
-            Tuple.Create("Ayuda (mantener)", "TeclaAyuda", "H", true),
-            Tuple.Create("Mostrar nombres", "TeclaNombres", "", true),
+            Tuple.Create("Hablar (mantener)", "Tecla", "Shift+V", false),
+            Tuple.Create("Escribir", "TeclaEscribir", "Shift+T", true),
+            Tuple.Create("Borrar lista (mantener 1 s)", "TeclaLimpiar", "Shift+G", true),
+            Tuple.Create("Ayuda (mantener)", "TeclaAyuda", "Shift+H", true),
+            Tuple.Create("Mostrar nombres", "TeclaNombres", "Shift+M", true),
         };
 
         void AskKey(Tuple<string, string, string, bool> act)
@@ -3342,7 +3401,7 @@ Puerto=8765
 
         // ---- escribir en vez de hablar: cuadro con autocompletado (solo con el cursor libre: menu de ESC, lobby, fuera del juego)
         int vkType; bool typeKeyDown, typeShift, typeCtrl, typeAlt, typePending;
-        string typeKeyName = "Ctrl+T";
+        string typeKeyName = "Shift+T";
 
         // "Shift+T", "Ctrl+T", "Alt+T", "Ctrl+Shift+T" o una tecla sola ("T")
         void SetTypeKey(string spec) { ParseCombo(spec, out vkType, out typeShift, out typeCtrl, out typeAlt, out typeKeyName); }
@@ -3351,7 +3410,7 @@ Puerto=8765
         static void ParseCombo(string spec, out int vk, out bool sh, out bool ct, out bool al, out string name)
         {
             var parts = (spec ?? "").Split('+').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
-            if (parts.Count == 0) parts.Add("T");
+            if (parts.Count == 0) { vk = 0; sh = ct = al = false; name = ""; return; } // sin tecla (antes quedaba la T por error)
             sh = ct = al = false;
             foreach (var m in parts.Take(parts.Count - 1))
             {
@@ -3454,6 +3513,12 @@ Puerto=8765
         }
 
         public bool HasKiller { get { return st.Killer != null; } }
+        public Entry CurrentKiller { get { return st.Killer; } }
+        public void ConfirmKiller(Entry k)
+        {
+            st.ConfirmedKiller = true;
+            try { SubmitTyped("", k, false, true); } finally { st.ConfirmedKiller = false; }
+        }
         static int RarityRank(string r)
         {
             switch (r) { case "iridescent": return 0; case "visceral": return 1; case "veryrare": return 2; case "rare": return 3; case "uncommon": return 4; case "common": return 5; default: return 6; }
@@ -3463,10 +3528,10 @@ Puerto=8765
         {
             switch (e.K)
             {
-                case Kind.Killer: return "killer";
-                case Kind.Perk: return "perk";
-                case Kind.Offering: return "ofrenda";
-                default: return "addon · " + (e.Killer ?? "") + (e.Rarity != null && ColorNameOf(e.Rarity).Length > 0 ? " · " + ColorNameOf(e.Rarity) : "");
+                case Kind.Killer: return "";
+                case Kind.Perk: return !string.IsNullOrEmpty(e.Owner) ? "de " + e.Owner : "general";
+                case Kind.Offering: return "";
+                default: return (e.Killer ?? "") + (e.Rarity != null && ColorNameOf(e.Rarity).Length > 0 ? " · " + ColorNameOf(e.Rarity) : "");
             }
         }
         static string ColorNameOf(string rar)
@@ -3538,6 +3603,7 @@ Puerto=8765
             void Refresh2()
             {
                 sugg = ov.Suggest(tb.Text);
+                confirmKiller = null;
                 lb.Items.Clear();
                 foreach (var e in sugg) lb.Items.Add(e);
                 if (sugg.Count > 0) lb.SelectedIndex = 0;
@@ -3560,25 +3626,74 @@ Puerto=8765
                 int x = e.Bounds.X + 4;
                 if (icon != null) e.Graphics.DrawImage(icon, new Rectangle(x, e.Bounds.Y + 2, 20, 20));
                 x += 26;
-                Color c = en.K == Kind.Perk || en.K == Kind.Killer ? Color.WhiteSmoke : RarityColor(en.Rarity);
+                // etiqueta de color con el tipo (KILLER / PERK / ADDON / OFRENDA), todas del mismo ancho para que los nombres queden alineados
+                string kind; Color pill;
+                switch (en.K)
+                {
+                    case Kind.Killer: kind = "KILLER"; pill = Color.FromArgb(170, 40, 45); break;
+                    case Kind.Perk: kind = "PERK"; pill = Color.FromArgb(70, 80, 120); break;
+                    case Kind.Offering: kind = "OFRENDA"; pill = Color.FromArgb(140, 110, 40); break;
+                    default: { var rc = RarityColor(en.Rarity); kind = "ADDON"; pill = Color.FromArgb(rc.R / 2, rc.G / 2, rc.B / 2); break; }
+                }
+                var pr = new Rectangle(x, e.Bounds.Y + 4, PillW, e.Bounds.Height - 8);
+                using (var b = new SolidBrush(pill)) e.Graphics.FillRectangle(b, pr);
+                TextRenderer.DrawText(e.Graphics, kind, PillFont, pr, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                x += PillW + 8;
+                Color c = en.K == Kind.Killer ? Color.FromArgb(255, 120, 120) : en.K == Kind.Perk ? Color.WhiteSmoke : RarityColor(en.Rarity);
                 string name = ov.DName(en);
-                TextRenderer.DrawText(e.Graphics, name, lb.Font, new Point(x, e.Bounds.Y + 3), c, TextFormatFlags.NoPrefix);
-                int w = TextRenderer.MeasureText(name, lb.Font).Width;
+                using (var nf = en.K == Kind.Killer ? new Font(lb.Font, FontStyle.Bold) : null)
+                {
+                    var f0 = nf ?? lb.Font;
+                    TextRenderer.DrawText(e.Graphics, name, f0, new Point(x, e.Bounds.Y + 3), c, TextFormatFlags.NoPrefix);
+                    x += TextRenderer.MeasureText(name, f0).Width;
+                }
                 using (var f = new Font("Segoe UI", 8.5f))
-                    TextRenderer.DrawText(e.Graphics, ov.SuggestTag(en), f, new Point(x + w + 6, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(e.Graphics, ov.SuggestTag(en), f, new Point(x + 4, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
             }
+            static readonly Font PillFont = new Font("Segoe UI", 7f, FontStyle.Bold);
+            const int PillW = 58;
 
             void OnKey(object s, KeyEventArgs e)
             {
                 if (e.KeyCode == Keys.Escape) { Hide(); e.Handled = e.SuppressKeyPress = true; }
+                else if (e.KeyCode == Keys.Back && (e.Shift || e.Control))
+                {
+                    // Shift/Ctrl+Retroceso: borra la palabra anterior de una (sin esto Windows escribe un caracter raro)
+                    int end = tb.SelectionStart, start = end;
+                    if (tb.SelectionLength > 0) { start = end; end += tb.SelectionLength; }
+                    else
+                    {
+                        while (start > 0 && char.IsWhiteSpace(tb.Text[start - 1])) start--;
+                        while (start > 0 && !char.IsWhiteSpace(tb.Text[start - 1])) start--;
+                    }
+                    tb.Text = tb.Text.Remove(start, end - start);
+                    tb.SelectionStart = start;
+                    e.Handled = e.SuppressKeyPress = true;
+                }
                 else if (e.KeyCode == Keys.Down && sugg.Count > 0) { lb.SelectedIndex = Math.Min(sugg.Count - 1, lb.SelectedIndex + 1); byArrows = true; e.Handled = e.SuppressKeyPress = true; }
                 else if (e.KeyCode == Keys.Up && sugg.Count > 0) { lb.SelectedIndex = Math.Max(0, lb.SelectedIndex - 1); byArrows = true; e.Handled = e.SuppressKeyPress = true; }
                 else if (e.KeyCode == Keys.Enter) { Submit(e.Shift); e.Handled = e.SuppressKeyPress = true; }
             }
 
+            Entry confirmKiller; // eligio otro killer: el proximo Enter confirma el cambio
+
             void Submit(bool doubt)
             {
+                if (confirmKiller != null)
+                {
+                    ov.ConfirmKiller(confirmKiller);
+                    confirmKiller = null; tb.Text = ""; Hide();
+                    return;
+                }
                 Entry picked = lb.SelectedIndex >= 0 && lb.SelectedIndex < sugg.Count ? sugg[lb.SelectedIndex] : null;
+                var cur = ov.CurrentKiller;
+                if (picked != null && picked.K == Kind.Killer && cur != null && cur != picked)
+                {
+                    confirmKiller = picked;
+                    hint.Text = "¿Cambiar " + cur.Name + " por " + picked.Name + "? Se borran los addons.\nEnter: sí, cambiar · Esc: no";
+                    hint.ForeColor = Color.FromArgb(240, 170, 80);
+                    return;
+                }
                 ov.SubmitTyped(tb.Text, picked, doubt, byArrows);
                 tb.Text = ""; Hide(); // elegido: se cierra (T para anotar otra cosa)
             }
@@ -4191,7 +4306,7 @@ Puerto=8765
         int clearStart, undoUntil;
         bool clearFired, clearHint;
         object undoSnap;
-        string ClearKeyName { get { return cfg.Get("TeclaLimpiar", "G"); } }
+        string ClearKeyName { get { return cfg.Get("TeclaLimpiar", "Shift+G"); } }
 
         bool HasAnything() { return st.Killer != null || st.Perks.Count > 0 || st.Addons.Count > 0 || st.Offering != null; }
 
@@ -4366,7 +4481,7 @@ Puerto=8765
         bool showNames;
         // escala general del widget (iconos, letras, killer): Escala=100 es el tamano normal
         float UiScale { get { return Math.Max(30, Math.Min(300, cfg.GetInt("Escala", 100))) / 100f; } }
-        int PerkSize { get { return Math.Max(16, (int)(Math.Max(24, cfg.GetInt("TamanoPerk", 48)) * UiScale)); } }
+        int PerkSize { get { return Math.Max(16, (int)(Math.Max(24, cfg.GetInt("TamanoPerk", 72)) * UiScale)); } }
 
         void MakeFonts()
         {
