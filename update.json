@@ -1,8 +1,8 @@
 {
-    "version":  28,
-    "notes":  "Sin sonido de Windows al abrir el cuadro para escribir",
-    "date":  "2026-11-15 21:55",
+    "version":  29,
+    "notes":  "Cuadro para escribir: toma el foco sin simular teclas (sin sonido)",
+    "date":  "2026-11-15 22:00",
     "files":  {
-                  "DbdOverlay.exe":  "48a0afc4e155f993764ef1913f67cdf2e92637ab4f8139c74b7992d898a4fc4b"
+                  "DbdOverlay.exe":  "a64b766d2620ad135001a0b9983cbc1245a53645fb2bad76abbc620e5115413e"
               }
 }

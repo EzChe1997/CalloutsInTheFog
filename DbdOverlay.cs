@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 28;
+        public const int AppVersion = 29;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3211,7 +3211,9 @@ Puerto=8765
         }
         TypeBox typeBox;
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
-        [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+        [DllImport("user32.dll")] static extern bool AttachThreadInput(int idAttach, int idAttachTo, bool attach);
+        [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+        [DllImport("kernel32.dll")] static extern int GetCurrentThreadId();
 
         bool CursorFree()
         {
@@ -3230,10 +3232,13 @@ Puerto=8765
             x = Math.Max(scr.Left, Math.Min(x, scr.Right - typeBox.Width));
             typeBox.Location = new Point(x, Math.Max(scr.Top, Math.Min(b.Top, scr.Bottom - typeBox.Height)));
             typeBox.Open();
-            // el juego tiene el foco: Windows solo deja pasarlo si "se apreto una tecla". Se usa F24 (no existe en el teclado):
-            // con Alt, Windows lo tomaba como Alt+T (Shift+Alt+T) y hacia el sonido de error
-            keybd_event(0x87, 0, 0, UIntPtr.Zero); keybd_event(0x87, 0, 2, UIntPtr.Zero);
+            // otra ventana tiene el foco: para quitarselo, la app se "engancha" un instante a su entrada de teclado.
+            // (antes se simulaba una tecla, Alt o F24, que le llegaba a esa ventana y Windows hacia el sonido de error)
+            int pid, fgThread = GetWindowThreadProcessId(GetForegroundWindow(), out pid), me = GetCurrentThreadId();
+            bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
             SetForegroundWindow(typeBox.Handle);
+            BringWindowToTop(typeBox.Handle);
+            if (attached) AttachThreadInput(me, fgThread, false);
             typeBox.Activate(); typeBox.FocusText();
         }
 
