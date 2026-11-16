@@ -471,7 +471,7 @@ Puerto=8765
 
         // ---- descripcion legible: valores del nivel 3 en lugar de {Tunable…}, estados en espanol, sin HTML
         static readonly Dictionary<string, string> KeywordEs = new Dictionary<string, string> {
-            { "haste", "Prisa" }, { "hindered", "Obstaculizado" }, { "exposed", "Expuesto" }, { "exhausted", "Agotado" },
+            { "haste", "Celeridad" }, { "hindered", "Obstaculizado" }, { "exposed", "Expuesto" }, { "exhausted", "Agotado" },
             { "blindness", "Ceguera" }, { "broken", "Destrozado" }, { "hemorrhage", "Hemorragia" }, { "mangled", "Mutilado" },
             { "oblivious", "Inconsciente" }, { "undetectable", "Indetectable" }, { "incapacitated", "Incapacitado" } };
         static readonly CultureInfo Es = new CultureInfo("es-AR");
@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 20;
+        public const int AppVersion = 21;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2505,6 +2505,7 @@ Puerto=8765
                   "\r\nteclas: hablar=" + KeyName + " borrar=" + cfg.Get("TeclaLimpiar", "G") + " ayuda=" + cfg.Get("TeclaAyuda", "H") +
                   " · microfono=" + cfg.Get("Microfono", "") + "\r\nestado cargado: " + st.Describe());
             SetupTray();
+            foreach (var si in StatusIcons) GetIcon(si.Item2); // iconos de estados: se bajan una vez
             if (!Preview) // --vista: solo dibuja (sin voz, sin sala, sin Steam) para probar el aspecto
             {
                 StartVoice();
@@ -2849,7 +2850,7 @@ Puerto=8765
             if (over != hoverE) { hoverE = over; hoverSince = Environment.TickCount; if (over == null && tip != null) tip.Hide(); return; }
             if (over == null || Environment.TickCount - hoverSince < 250) return;
             if (tip != null && tip.Visible && tip.Current == over) return;
-            if (tip == null) tip = new HoverTip(new Font("Segoe UI", fItem.Size, FontStyle.Bold), fSmall);
+            if (tip == null) tip = new HoverTip(new Font("Segoe UI", fItem.Size, FontStyle.Bold), fSmall, GetIcon);
             string title = DName(over);
             string sub = over.K == Kind.Perk ? "Perk" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "")
                        : over.K == Kind.Offering ? "Ofrenda" : "Addon" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "");
@@ -2860,18 +2861,45 @@ Puerto=8765
             tip.ShowFor(over, title, tc, sub, DInfo(over), anchor, Bounds, right);
         }
 
+        // estados del juego -> icono de la wiki (se marcan en las descripciones con su icono)
+        static readonly Tuple<Regex, string>[] StatusIcons = {
+            Tuple.Create(new Regex(@"\b(?:Herida profunda|Deep Wound)\b"), "IconStatusEffects_deepWound.png"),
+            Tuple.Create(new Regex(@"\b(?:Hemorragia|Hemorrhage|Haemorrhage)\b"), "IconStatusEffects_bleeding.png"),
+            Tuple.Create(new Regex(@"\b(?:Laceración|Mutilad[oa]s?|Mutilación|Mangled)\b"), "IconStatusEffects_mangled.png"),
+            Tuple.Create(new Regex(@"\b(?:Expuest[oa]s?|Exposed)\b"), "IconStatusEffects_exposed.png"),
+            Tuple.Create(new Regex(@"\b(?:Celeridad|Prisa|Haste)\b"), "IconStatusEffects_haste.png"),
+            Tuple.Create(new Regex(@"\b(?:Obstaculizad[oa]s?|Obstaculización|Hindered)\b"), "IconStatusEffects_hindered.png"),
+            Tuple.Create(new Regex(@"\b(?:Ceguera|Cegad[oa]s?|Blindness|Blinded)\b"), "IconStatusEffects_vision.png"),
+            Tuple.Create(new Regex(@"\b(?:Quebrantad[oa]s?|Destrozad[oa]s?|Herida grave|Broken)\b"), "IconStatusEffects_broken.png"),
+            Tuple.Create(new Regex(@"\b(?:Agotamiento|Agotad[oa]s?|Exhausted|Exhaustion)\b"), "IconStatusEffects_exhausted.png"),
+            Tuple.Create(new Regex(@"\b(?:Inconsciencia|Inconscientes?|Oblivious)\b"), "IconStatusEffects_oblivious.png"),
+            Tuple.Create(new Regex(@"\b(?:Indetectable|Undetectable)\b"), "IconStatusEffects_undetectable.png"),
+            Tuple.Create(new Regex(@"\b(?:Incapacitad[oa]s?|Incapacitación|Incapacitated)\b"), "IconStatusEffects_incapacitated.png"),
+            Tuple.Create(new Regex(@"\b(?:Locura|Madness)\b"), "IconStatusEffects_madness.png"),
+            Tuple.Create(new Regex(@"\b(?:Resistencia|Endurance)\b"), "IconStatusEffects_enduranceSurvivor.png"),
+            Tuple.Create(new Regex(@"\b(?:Esquiv[oa]|Elusive)\b"), "IconStatusEffects_elusive.png"),
+            Tuple.Create(new Regex(@"\b(?:Maldici[oó]n|Maldit[oa]s?|Cursed)\b"), "IconStatusEffects_cursed.png"),
+        };
+
         class HoverTip : Form
         {
             public Entry Current;
             string title = "", sub = "", body = "";
             Color tc;
-            readonly Font ft, fb, fs;
+            readonly Font ft, fb, fs, fk;
+            readonly Func<string, Image> icon;
             const int Pad = 10, MaxW = 400;
             const TextFormatFlags Wrap = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+            const TextFormatFlags One = TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+            static readonly Color StatusColor = Color.FromArgb(240, 200, 110);
 
-            public HoverTip(Font title, Font body)
+            class Op { public string T; public Image Img; public Rectangle R; public bool Status; }
+            List<Op> ops = new List<Op>();
+
+            public HoverTip(Font title, Font body, Func<string, Image> getIcon)
             {
-                ft = title; fb = body; fs = new Font(body.FontFamily, body.Size * 0.9f, FontStyle.Italic);
+                ft = title; fb = body; fs = new Font(body.FontFamily, body.Size * 0.9f, FontStyle.Italic); fk = new Font(body.FontFamily, body.Size, FontStyle.Bold);
+                icon = getIcon;
                 FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
                 BackColor = Color.FromArgb(18, 18, 24); TopMost = true; DoubleBuffered = true; Opacity = 0.96;
             }
@@ -2881,11 +2909,69 @@ Puerto=8765
             }
             protected override bool ShowWithoutActivation { get { return true; } }
 
+            static int W(string s, Font f) { return TextRenderer.MeasureText(s, f, new Size(int.MaxValue, int.MaxValue), One).Width; }
+
+            // arma el texto palabra por palabra: los estados van con su icono y resaltados
+            Size LayoutBody(int maxW)
+            {
+                ops = new List<Op>();
+                int lh = Math.Max(fb.Height, fk.Height) + 2, isz = fb.Height, space = W("a a", fb) - W("aa", fb);
+                // TextRenderer suma un margen a cada medida: se descuenta para que las palabras queden a distancia normal
+                int over = Math.Max(0, 2 * W("a", fb) - W("aa", fb)), overK = Math.Max(0, 2 * W("a", fk) - W("aa", fk));
+                int x = 0, y = 0, wmax = 0;
+                foreach (var para in body.Split('\n'))
+                {
+                    if (para.Trim().Length == 0) { y += lh / 2; continue; }
+                    // trozos: texto comun y estados
+                    var parts = new List<Tuple<string, string>>(); // (texto, archivo de icono o null)
+                    int pos = 0;
+                    while (pos < para.Length)
+                    {
+                        Match best = null; string file = null;
+                        foreach (var si in StatusIcons)
+                        {
+                            var m = si.Item1.Match(para, pos);
+                            if (m.Success && (best == null || m.Index < best.Index)) { best = m; file = si.Item2; }
+                        }
+                        if (best == null) { parts.Add(Tuple.Create(para.Substring(pos), (string)null)); break; }
+                        if (best.Index > pos) parts.Add(Tuple.Create(para.Substring(pos, best.Index - pos), (string)null));
+                        parts.Add(Tuple.Create(best.Value, file));
+                        pos = best.Index + best.Length;
+                    }
+                    foreach (var p in parts)
+                    {
+                        if (p.Item2 != null)
+                        {
+                            var img = icon(p.Item2);
+                            int ww = (img != null ? isz + 2 : 0) + W(p.Item1, fk) - overK;
+                            if (x > 0 && x + ww > maxW) { x = 0; y += lh; }
+                            if (img != null) { ops.Add(new Op { Img = img, R = new Rectangle(x, y + (lh - isz) / 2 - 1, isz, isz) }); x += isz + 2; }
+                            int tw = W(p.Item1, fk) - overK;
+                            ops.Add(new Op { T = p.Item1, R = new Rectangle(x, y, tw + 2, lh), Status = true });
+                            x += tw; wmax = Math.Max(wmax, x);
+                            continue;
+                        }
+                        // texto comun: palabra por palabra (los espacios se respetan)
+                        foreach (var tok in Regex.Split(p.Item1, @"(\s+)"))
+                        {
+                            if (tok.Length == 0) continue;
+                            if (tok.Trim().Length == 0) { if (x > 0) x += space; continue; }
+                            int tw = W(tok, fb) - over;
+                            if (x > 0 && x + tw > maxW) { x = 0; y += lh; }
+                            ops.Add(new Op { T = tok, R = new Rectangle(x, y, tw + 2, lh) });
+                            x += tw; wmax = Math.Max(wmax, x);
+                        }
+                    }
+                    x = 0; y += lh;
+                }
+                return new Size(wmax, y);
+            }
+
             public void ShowFor(Entry e, string t, Color c, string s, string b, Rectangle anchor, Rectangle overlay, bool leftOfOverlay)
             {
-                Current = e; title = t; tc = c; sub = s; body = b;
+                Current = e; title = t; tc = c; sub = s; body = b ?? "";
                 var big = new Size(MaxW, 4000);
-                Size st = TextRenderer.MeasureText(title, ft, big, Wrap), ss = TextRenderer.MeasureText(sub, fs, big, Wrap), sb = TextRenderer.MeasureText(body, fb, big, Wrap);
+                Size st = TextRenderer.MeasureText(title, ft, big, Wrap), ss = TextRenderer.MeasureText(sub, fs, big, Wrap), sb = LayoutBody(MaxW);
                 int w = Math.Max(st.Width, Math.Max(ss.Width, sb.Width)) + Pad * 2 + 4;
                 int h = st.Height + ss.Height + sb.Height + Pad * 2 + 10;
                 var scr = Screen.FromRectangle(overlay).WorkingArea;
@@ -2900,6 +2986,7 @@ Puerto=8765
             protected override void OnPaint(PaintEventArgs e)
             {
                 var g = e.Graphics;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                 using (var pen = new Pen(Color.FromArgb(Math.Min(255, tc.R / 2 + 40), Math.Min(255, tc.G / 2 + 40), Math.Min(255, tc.B / 2 + 40)), 2))
                     g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
                 int y = Pad, w = Width - Pad * 2;
@@ -2908,8 +2995,12 @@ Puerto=8765
                 TextRenderer.DrawText(g, title, ft, r, tc, Wrap); y = r.Bottom + 2;
                 r = new Rectangle(Pad, y, w, TextRenderer.MeasureText(sub, fs, big, Wrap).Height);
                 TextRenderer.DrawText(g, sub, fs, r, Color.FromArgb(150, 150, 165), Wrap); y = r.Bottom + 8;
-                r = new Rectangle(Pad, y, w, Height - y - Pad);
-                TextRenderer.DrawText(g, body, fb, r, Color.Gainsboro, Wrap);
+                foreach (var op in ops)
+                {
+                    var rr = op.R; rr.Offset(Pad, y);
+                    if (op.Img != null) g.DrawImage(op.Img, rr);
+                    else TextRenderer.DrawText(g, op.T, op.Status ? fk : fb, rr, op.Status ? StatusColor : Color.Gainsboro, One);
+                }
             }
         }
 
@@ -3692,15 +3783,22 @@ Puerto=8765
             Feedback(what, Color.FromArgb(150, 220, 150), 5000);
         }
 
+        // las teclas (V, T, G, H) solo cuentan con DBD en primer plano: escribiendo en Discord, el navegador, etc. no hacen nada.
+        // TeclasSoloEnDBD=no las vuelve globales (para probar sin el juego).
+        bool keysGate;
+        bool KeysOnlyInDbd { get { return !Regex.IsMatch(cfg.Get("TeclasSoloEnDBD", "si"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
+        bool HotKey(int vk) { return vk != 0 && keysGate && (GetAsyncKeyState(vk) & 0x8000) != 0; }
+
         void KeyTick()
         {
             // escribiendo en el cuadro: las teclas son para el texto (la V, la G o la H no hacen nada)
             if (typeBox != null && typeBox.Visible) { typeKeyDown = true; return; }
-            bool tk = vkType != 0 && (GetAsyncKeyState(vkType) & 0x8000) != 0;
+            keysGate = !KeysOnlyInDbd || DbdInFront();
+            bool tk = vkType != 0 && HotKey(vkType);
             if (tk && !typeKeyDown && !talking && CursorFree()) OpenTypeBox();
             typeKeyDown = tk;
             int now = Environment.TickCount;
-            bool down = (GetAsyncKeyState(vkTalk) & 0x8000) != 0;
+            bool down = HotKey(vkTalk);
 
             if (mic != null && !mic.Running && micRestartAt < 0)
             {
@@ -3742,7 +3840,7 @@ Puerto=8765
             if (vkClear != 0)
             {
                 // mantener 1 s = borrar todo; toque corto despues de borrar = deshacer
-                bool c = (GetAsyncKeyState(vkClear) & 0x8000) != 0;
+                bool c = HotKey(vkClear);
                 if (c && !clearDown) { clearStart = now; clearFired = false; clearHint = false; }
                 if (c && !clearFired)
                 {
@@ -3767,12 +3865,12 @@ Puerto=8765
             }
             if (vkHelp != 0)
             {
-                bool hk = (GetAsyncKeyState(vkHelp) & 0x8000) != 0;
+                bool hk = HotKey(vkHelp);
                 if (hk != helpShown) { helpShown = hk; Relayout(); }
             }
             if (vkNames != 0)
             {
-                bool c = (GetAsyncKeyState(vkNames) & 0x8000) != 0;
+                bool c = HotKey(vkNames);
                 if (c && !namesDown) SetNames(!showNames);
                 namesDown = c;
             }

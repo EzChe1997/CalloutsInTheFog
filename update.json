@@ -1,8 +1,8 @@
 {
-    "version":  20,
-    "notes":  "Escribir en vez de hablar (tecla T): cuadro con autocompletado",
-    "date":  "2026-11-15 21:07",
+    "version":  21,
+    "notes":  "Iconos de estados en las descripciones; las teclas solo funcionan con DBD en primer plano",
+    "date":  "2026-11-15 21:15",
     "files":  {
-                  "DbdOverlay.exe":  "74f7c2921c25ff4a7b6bd96eea0ea03c6aa04985f10909cef2c8cb5a2e0634f6"
+                  "DbdOverlay.exe":  "1d30a4022d277c53b5c0367eea1f9717f0f0f8d1d7651ee1493026e051ad3832"
               }
 }
