@@ -2363,7 +2363,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 34;
+        public const int AppVersion = 35;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2375,8 +2375,21 @@ Puerto=8765
             error = null;
             try
             {
-                byte[] man = Catalog.HttpBytes(Base + "update.json?t=" + DateTime.UtcNow.Ticks);
-                string sig = Encoding.ASCII.GetString(Catalog.HttpBytes(Base + "update.sig?t=" + DateTime.UtcNow.Ticks)).Trim();
+                // GitHub guarda copias de los archivos hasta 5 min: se pide el ultimo commit y se bajan los archivos
+                // de ESE commit (direccion nueva = nunca una copia vieja). Si falla, la direccion de siempre.
+                string ub = Base;
+                try
+                {
+                    var req = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/EzChe1997/dbd-killer-overlay/commits/main");
+                    req.UserAgent = "DbdOverlay"; req.Accept = "application/vnd.github.sha"; req.Timeout = 10000;
+                    req.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
+                    string shaC;
+                    using (var r = req.GetResponse()) using (var sr = new StreamReader(r.GetResponseStream())) shaC = sr.ReadToEnd().Trim();
+                    if (Regex.IsMatch(shaC, "^[0-9a-f]{40}$")) ub = Base.Replace("/main/", "/" + shaC + "/");
+                }
+                catch { }
+                byte[] man = Catalog.HttpBytes(ub + "update.json?t=" + DateTime.UtcNow.Ticks);
+                string sig = Encoding.ASCII.GetString(Catalog.HttpBytes(ub + "update.sig?t=" + DateTime.UtcNow.Ticks)).Trim();
                 using (var rsa = new System.Security.Cryptography.RSACryptoServiceProvider())
                 {
                     rsa.FromXmlString(PublicKey);
@@ -2387,7 +2400,7 @@ Puerto=8765
                 if (ver <= AppVersion) return null;
                 var files = (Dictionary<string, object>)d["files"];
                 string want = files["DbdOverlay.exe"].ToString();
-                byte[] exe = Catalog.HttpBytes(Base + "DbdOverlay.exe?v=" + ver);
+                byte[] exe = Catalog.HttpBytes(ub + "DbdOverlay.exe?v=" + ver);
                 string got;
                 using (var sha = System.Security.Cryptography.SHA256.Create())
                     got = string.Concat(sha.ComputeHash(exe).Select(b => b.ToString("x2")));
@@ -3195,7 +3208,8 @@ Puerto=8765
         // ---- actualizaciones: si hay version nueva firmada, la instala y reinicia (la lista se conserva)
         bool updating;
 
-        void CheckUpdate()
+        void CheckUpdate() { CheckUpdate(false); }
+        void CheckUpdate(bool manual)
         {
             if (updating) return;
             updating = true;
@@ -3206,6 +3220,7 @@ Puerto=8765
                 {
                     updating = false;
                     if (err != null) DebugEvent("actualización: " + err);
+                    if (manual && what == null) Feedback(err != null ? "No pude buscar la actualización (" + err + ")" : "Ya tenés la última versión (" + Updater.AppVersion + ")", err != null ? Color.FromArgb(240, 170, 80) : Color.FromArgb(150, 220, 150), 5000);
                     if (what == null) return;
                     DebugEvent("actualización instalada (" + what + "): reinicio");
                     Feedback("DBD Overlay actualizado a la " + what + " · reiniciando…", Color.FromArgb(150, 220, 150), 4000);
@@ -3632,9 +3647,10 @@ Puerto=8765
             var am = Regex.Match(n, @"^(?:addons?|add ons?|adon|accesorios?)\b\s*(.*)$");
             if (am.Success)
             {
-                if (st.Killer == null) return new List<Entry>();
                 string rest = am.Groups[1].Value.Trim();
-                IEnumerable<Entry> list = cat.Addons.Where(a => a.Killer == st.Killer.Name);
+                // sin killer anotado: se busca en los addons de todos (solo si se escribio algo para filtrar)
+                if (st.Killer == null && rest.Length == 0) return new List<Entry>();
+                IEnumerable<Entry> list = st.Killer != null ? cat.Addons.Where(a => a.Killer == st.Killer.Name) : cat.Addons;
                 var cm = State.ColorRx.Match(rest);
                 if (cm.Success)
                 {
@@ -3642,17 +3658,22 @@ Puerto=8765
                     list = list.Where(a => a.Rarity == rar || (rar == "visceral" && a.Rarity == "iridescent"));
                     rest = rest.Remove(cm.Index, cm.Length).Trim();
                 }
-                foreach (var w in rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                // palabras y numeros que esten en el nombre o la descripcion ("addon 15 lento"): primero los que tienen todas
+                var words = rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Where(w => !AddonFiller.Contains(w)).ToList();
+                if (words.Count == 0) return list.OrderBy(a => RarityRank(a.Rarity)).ThenBy(a => DName(a)).ToList();
+                var scored = list.Select(a =>
                 {
-                    string ww = w;
-                    list = list.Where(a => Txt.Norm(a.Name).Contains(ww) || (a.NameEs != null && Txt.Norm(a.NameEs).Contains(ww))
-                                        || Txt.Norm(a.Info ?? "").Contains(ww) || Txt.Norm(a.InfoEn ?? "").Contains(ww));
-                }
-                return list.OrderBy(a => RarityRank(a.Rarity)).ThenBy(a => DName(a)).ToList();
+                    string txt = " " + Txt.Norm(a.Name + " " + a.NameEs + " " + a.Info + " " + a.InfoEn) + " ";
+                    int hits = words.Count(w => AddonWordAlts(w).Any(alt => Regex.IsMatch(alt, "^[0-9]+$") ? txt.Contains(" " + alt + " ") : txt.Contains(alt)));
+                    return new { A = a, H = hits };
+                }).Where(x => x.H > 0).ToList();
+                if (scored.Count == 0) return new List<Entry>();
+                int best = scored.Max(x => x.H);
+                return scored.Where(x => x.H == best).Select(x => x.A).OrderBy(a => RarityRank(a.Rarity)).ThenBy(a => DName(a)).Take(30).ToList();
             }
             var addons = st.Killer != null ? cat.Addons.Where(a => a.Killer == st.Killer.Name) : cat.Addons;
             var pool = cat.Killers.Concat(cat.Perks).Concat(addons).Concat(cat.Offerings);
-            return pool.Select(e =>
+            var res = pool.Select(e =>
             {
                 double s = 0;
                 foreach (var nm in new[] { e.Name, e.NameEs }.Where(x => !string.IsNullOrEmpty(x)).Select(x => Txt.Norm(x)).Concat(e.Keys.Select(k => k.N)))
@@ -3667,6 +3688,49 @@ Puerto=8765
                 if (s > 0) s += e.K == Kind.Perk ? 0.1 : e.K == Kind.Addon && st.Killer != null ? 0.1 : e.K == Kind.Offering ? -0.1 : 0;
                 return new { E = e, S = s };
             }).Where(x => x.S > 0).OrderByDescending(x => x.S).ThenBy(x => x.E.Name.Length).Take(8).Select(x => x.E).ToList();
+            // nombre de un killer: sus perks justo debajo (para cuando sabes de quien es el perk pero no como se llama)
+            var kl = res.FirstOrDefault(e => e.K == Kind.Killer);
+            if (kl != null)
+            {
+                var own = cat.Perks.Where(p => p.Owner == kl.Name).OrderBy(p => DName(p)).ToList();
+                res.RemoveAll(e => own.Contains(e));
+                res.InsertRange(res.IndexOf(kl) + 1, own);
+            }
+            return res;
+        }
+
+        // palabras de relleno ("addon que me hace 15 mas lento")
+        static readonly HashSet<string> AddonFiller = new HashSet<string>(("que me te le lo la el los las un una de del y o a en por con mas menos hace hacia " +
+            "tiene tenia porciento ciento porcentaje cuando al su sus se es").Split(' '));
+        // como lo decimos -> como lo dice la descripcion (en castellano y en ingles)
+        static readonly Dictionary<string, string[]> AddonSyn = new Dictionary<string, string[]>
+        {
+            { "lento", new[] { "obstaculiz", "hinder", "ralentiz", "slow", "lentitud", "reduce la velocidad", "decreases" } },
+            { "ralentiza", new[] { "obstaculiz", "hinder", "ralentiz", "slow", "lentitud", "reduce la velocidad", "decreases" } },
+            { "slow", new[] { "obstaculiz", "hinder", "ralentiz", "slow", "lentitud", "decreases" } },
+            { "obstaculizado", new[] { "obstaculiz", "hinder" } },
+            { "rapido", new[] { "velocidad", "speed", "rapid", "acelera", "increases movement" } },
+            { "velocidad", new[] { "velocidad", "speed" } },
+            { "ciego", new[] { "ceguera", "ciego", "blind" } },
+            { "agotado", new[] { "agotamiento", "exhaust" } },
+            { "herido", new[] { "destroz", "mangled", "herid", "injur" } },
+            { "sangra", new[] { "hemorrag", "haemorrhag", "hemorrhag" } },
+            { "grito", new[] { "grit", "scream" } },
+            { "indetectable", new[] { "indetectable", "undetectable" } },
+            { "terror", new[] { "terror" } },
+            { "aura", new[] { "aura" } },
+            { "expuesto", new[] { "expuest", "exposed" } },
+            { "rompe", new[] { "romp", "rot", "broken", "break" } },
+            { "reparar", new[] { "repar", "repair", "generador", "generator", "regres" } },
+            { "duracion", new[] { "duracion", "duration" } },
+            { "recarga", new[] { "recarg", "reload", "enfriamiento", "cooldown" } },
+        };
+        static IEnumerable<string> AddonWordAlts(string w)
+        {
+            yield return w;
+            foreach (var kv in AddonSyn)
+                if (w.StartsWith(kv.Key.Substring(0, Math.Min(kv.Key.Length, 4))) && w.Length >= 4 || w == kv.Key)
+                    foreach (var alt in kv.Value) yield return alt;
         }
 
         public bool HasKiller { get { return st.Killer != null; } }
@@ -3837,8 +3901,8 @@ Puerto=8765
                 byArrows = false;
                 lb.Height = Math.Min(sugg.Count, 10) * lb.ItemHeight; // con mas de 10 aparece la barra para bajar
                 if (sugg.Count > 0) lb.TopIndex = 0;
-                bool noKiller = Regex.IsMatch(Txt.Norm(tb.Text), @"^(?:addons?|add ons?|adon|accesorios?)\b") && !ov.HasKiller;
-                hint.Text = noKiller ? "Primero anotá el killer (escribí su nombre) para ver sus addons." : why != null ? why + "\n" + HintText.Split('\n')[0] : HintText;
+                bool noKiller = Regex.IsMatch(Txt.Norm(tb.Text), @"^(?:addons?|add ons?|adon|accesorios?)$") && !ov.HasKiller;
+                hint.Text = noKiller ? "Sin killer anotado: escribí algo de la descripción (\"addon 15 lento\") o anotá el killer primero." : why != null ? why + "\n" + HintText.Split('\n')[0] : HintText;
                 hint.ForeColor = noKiller || why != null ? Color.FromArgb(240, 170, 80) : Color.FromArgb(140, 140, 155);
                 Height = Padding.Vertical + tb.Height + lb.Height + hint.Height + 4;
             }
@@ -4487,6 +4551,7 @@ Puerto=8765
             menu.Items.Add("Editar apodos", null, (s, e) => { try { st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(dir, "apodos.txt") + "\""); } catch { } });
             menu.Items.Add("Abrir carpeta", null, (s, e) => { try { Process.Start("explorer.exe", "\"" + dir + "\""); } catch { } });
             menu.Items.Add("-");
+            menu.Items.Add("Buscar actualización", null, (s, e) => { if (updating) return; Feedback("Buscando actualización…", Color.FromArgb(200, 200, 210), 4000); CheckUpdate(true); });
             menu.Items.Add("Salir", null, (s, e) => Close());
             tray.ContextMenuStrip = menu;
         }

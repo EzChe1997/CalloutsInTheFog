@@ -1,8 +1,8 @@
 {
-    "version":  34,
-    "notes":  "Cuadro de escribir arriba de todo, Alt+Tab siempre anda, se cierra solo (juego no al frente o 30 s sin escribir), aviso en el widget, registro en debug.log",
-    "date":  "2026-11-15 23:52",
+    "version":  35,
+    "notes":  "Perks del killer debajo de su nombre, buscar addons por efecto (addon 15 lento), actualizaciones sin demora de GitHub y boton Buscar actualizacion",
+    "date":  "2026-11-16 01:05",
     "files":  {
-                  "DbdOverlay.exe":  "35d181a11672e5b6cde999cacf302a6e25e14bf2641d4cc7818aad32fd633be7"
+                  "DbdOverlay.exe":  "cd13e61129bff132d36ad56ce79f45ccda1d52cc8657168975810b185e6065c0"
               }
 }
