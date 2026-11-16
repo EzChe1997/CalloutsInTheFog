@@ -2363,7 +2363,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 33;
+        public const int AppVersion = 34;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3549,7 +3549,8 @@ Puerto=8765
                     var k = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
                     bool injected = (k.flags & 0x10) != 0;
                     // Shift, Ctrl, Alt, Bloq Mayus y Windows pasan (sirven para las mayusculas y combinaciones)
-                    if (!injected && !IsModifierVk(k.vkCode))
+                    bool altDown = (GetAsyncKeyState(0x12) & 0x8000) != 0;
+                    if (!injected && !IsModifierVk(k.vkCode) && !altDown)
                     {
                         int msg = wParam.ToInt32();
                         if (msg == 0x100 || msg == 0x104) // tecla apretada (tambien con Alt)
@@ -3566,6 +3567,7 @@ Puerto=8765
                             string text = r > 0 ? sb.ToString(0, r) : "";
                             var key = (Keys)k.vkCode;
                             var box = typeBox;
+                            typeLastKey = Environment.TickCount;
                             BeginInvoke((Action)(() => { if (box.Visible) box.HookKey(key, text, shift, ctrl); }));
                         }
                         return (IntPtr)1; // el juego no la recibe (ni apretada ni soltada)
@@ -3576,15 +3578,19 @@ Puerto=8765
             return CallNextHookEx(kbHook, nCode, wParam, lParam);
         }
 
-        IntPtr typePrevFg, typeRefFg; bool typeFromGame; int typeOpenedAt;
+        IntPtr typePrevFg, typeRefFg; bool typeFromGame; int typeOpenedAt, typeLastKey;
+        [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
         [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
 
         // cerrar el cuadro (Enter / Esc): el foco vuelve directo a la ventana de antes (el juego).
         // Sin esto Windows elige la siguiente ventana y DBD a veces queda "sin foco" hasta hacerle clic.
-        public void HideTypeBox()
+        public void HideTypeBox() { HideTypeBox(null); }
+        public void HideTypeBox(string why)
         {
             StopKeyHook();
             if (typeBox == null) return;
+            if (typeBox.Visible) DebugEvent("escribir: cerrado" + (why != null ? " (" + why + ")" : ""));
+            if (feedback.StartsWith("⌨ escribiendo")) { feedback = ""; Relayout(); }
             bool hadFocus = GetForegroundWindow() == typeBox.Handle;
             typeBox.Hide();
             // solo si por algun motivo el cuadro quedo con el foco (por ejemplo, abierto desde el menu): devolverlo
@@ -3605,9 +3611,13 @@ Puerto=8765
             var prevFg = GetForegroundWindow();
             typePrevFg = prevFg != typeBox.Handle && prevFg != Handle ? prevFg : IntPtr.Zero;
             typeFromGame = DbdInFront();
-            typeOpenedAt = Environment.TickCount; typeRefFg = IntPtr.Zero;
+            typeOpenedAt = typeLastKey = Environment.TickCount; typeRefFg = IntPtr.Zero;
             typeBox.Open();
             StartKeyHook();
+            SetWindowPos(typeBox.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040); // arriba de todo (tambien del juego), sin activarse
+            DebugEvent("escribir: abierto en " + typeBox.Bounds + (typeFromGame ? " (DBD al frente)" : "") + (kbHook == IntPtr.Zero ? " · SIN GANCHO" : ""));
+            // tambien en el widget (por si el cuadro no se ve): las teclas van al cuadro hasta Enter/Esc
+            Feedback("⌨ escribiendo… las teclas van al cuadro · Esc para cerrar", Color.FromArgb(240, 200, 110), 30000);
         }
 
         // sugerencias: killers, perks, addons (los del killer anotado) y ofrendas, en ingles o en espanol
@@ -3762,6 +3772,7 @@ Puerto=8765
                 ov = o;
                 FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; TopMost = true; KeyPreview = true;
                 BackColor = Color.FromArgb(18, 18, 24); Padding = new Padding(8);
+                Opacity = 0.97; // ventana en capas, como el widget y el hover (se ve encima del juego igual que ellos)
                 Width = 440;
                 tb = new TextBox { Dock = DockStyle.Top, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(32, 32, 42), ForeColor = Color.WhiteSmoke, Font = new Font("Segoe UI", 12f) };
                 lb = new ListBox { Dock = DockStyle.Top, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(18, 18, 24), ForeColor = Color.Gainsboro,
@@ -4504,12 +4515,16 @@ Puerto=8765
             if (typeBox != null && typeBox.Visible)
             {
                 typeKeyDown = true;
-                // si cambia la ventana del frente (alt-tab, clic en otra app), se cierra: no seguir tomando el teclado
+                // se cierra solo (para no quedar tomando el teclado sin que se note):
+                // si cambia la ventana del frente, si el juego se minimiza, o tras 30 s sin escribir nada
                 var fgNow = GetForegroundWindow();
-                if (Environment.TickCount - typeOpenedAt > 700)
+                int nowT = Environment.TickCount;
+                if (typeFromGame && typePrevFg != IntPtr.Zero && (fgNow != typePrevFg || IsIconic(typePrevFg))) { HideTypeBox("el juego dejó de estar al frente"); return; }
+                if (nowT - typeLastKey > 30000) { HideTypeBox("30 s sin escribir"); return; }
+                if (!typeFromGame && nowT - typeOpenedAt > 700)
                 {
                     if (typeRefFg == IntPtr.Zero) typeRefFg = fgNow;
-                    else if (fgNow != typeRefFg) HideTypeBox();
+                    else if (fgNow != typeRefFg) { HideTypeBox("cambió la ventana del frente"); return; }
                 }
                 return;
             }

@@ -1,8 +1,8 @@
 {
-    "version":  33,
-    "notes":  "Escribir sin sacarle el foco al juego, quitar/cambiar/duda desde el cuadro, elegir cual sale con la lista llena, noed? = sospecha, Shift+T sin depender del cursor",
-    "date":  "2026-11-15 23:41",
+    "version":  34,
+    "notes":  "Cuadro de escribir arriba de todo, Alt+Tab siempre anda, se cierra solo (juego no al frente o 30 s sin escribir), aviso en el widget, registro en debug.log",
+    "date":  "2026-11-15 23:52",
     "files":  {
-                  "DbdOverlay.exe":  "161e0becb7f83e8db950bb2d414434f96111edd3f7ecf735ad25c9a62a1273ed"
+                  "DbdOverlay.exe":  "35d181a11672e5b6cde999cacf302a6e25e14bf2641d4cc7818aad32fd633be7"
               }
 }
