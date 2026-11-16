@@ -1,8 +1,8 @@
 {
-    "version":  35,
-    "notes":  "Perks del killer debajo de su nombre, buscar addons por efecto (addon 15 lento), actualizaciones sin demora de GitHub y boton Buscar actualizacion",
-    "date":  "2026-11-16 01:05",
+    "version":  36,
+    "notes":  "Buscar perks por efecto en el cuadro (perk aura gancho, perk 4 lento)",
+    "date":  "2026-11-16 18:02",
     "files":  {
-                  "DbdOverlay.exe":  "cd13e61129bff132d36ad56ce79f45ccda1d52cc8657168975810b185e6065c0"
+                  "DbdOverlay.exe":  "1b1f866e17671f96bf59e9bf6966eadaa8ccdb0c956979741ee38961440111be"
               }
 }

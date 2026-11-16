@@ -2363,7 +2363,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 35;
+        public const int AppVersion = 36;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3659,17 +3659,15 @@ Puerto=8765
                     rest = rest.Remove(cm.Index, cm.Length).Trim();
                 }
                 // palabras y numeros que esten en el nombre o la descripcion ("addon 15 lento"): primero los que tienen todas
-                var words = rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Where(w => !AddonFiller.Contains(w)).ToList();
-                if (words.Count == 0) return list.OrderBy(a => RarityRank(a.Rarity)).ThenBy(a => DName(a)).ToList();
-                var scored = list.Select(a =>
-                {
-                    string txt = " " + Txt.Norm(a.Name + " " + a.NameEs + " " + a.Info + " " + a.InfoEn) + " ";
-                    int hits = words.Count(w => AddonWordAlts(w).Any(alt => Regex.IsMatch(alt, "^[0-9]+$") ? txt.Contains(" " + alt + " ") : txt.Contains(alt)));
-                    return new { A = a, H = hits };
-                }).Where(x => x.H > 0).ToList();
-                if (scored.Count == 0) return new List<Entry>();
-                int best = scored.Max(x => x.H);
-                return scored.Where(x => x.H == best).Select(x => x.A).OrderBy(a => RarityRank(a.Rarity)).ThenBy(a => DName(a)).Take(30).ToList();
+                return EffectSearch(list, rest, l => l.OrderBy(a => RarityRank(a.Rarity)).ThenBy(a => DName(a)));
+            }
+            // "perk [efecto]": perks cuya descripcion coincide ("perk 4 regresion", "perk aura gancho")
+            var pm = Regex.Match(n, @"^(?:perks?|habilidad(?:es)?)\s+(.+)$");
+            if (pm.Success)
+            {
+                var kn = st.Killer != null ? st.Killer.Name : null;
+                // los del killer anotado primero, despues los generales y los de otros killers
+                return EffectSearch(cat.Perks, pm.Groups[1].Value.Trim(), l => l.OrderBy(p => p.Owner == kn && kn != null ? 0 : string.IsNullOrEmpty(p.Owner) ? 1 : 2).ThenBy(p => DName(p)));
             }
             var addons = st.Killer != null ? cat.Addons.Where(a => a.Killer == st.Killer.Name) : cat.Addons;
             var pool = cat.Killers.Concat(cat.Perks).Concat(addons).Concat(cat.Offerings);
@@ -3723,6 +3721,22 @@ Puerto=8765
             { "rompe", new[] { "romp", "rot", "broken", "break" } },
             { "reparar", new[] { "repar", "repair", "generador", "generator", "regres" } },
             { "duracion", new[] { "duracion", "duration" } },
+            { "regresion", new[] { "regres", "regress" } },
+            { "gancho", new[] { "gancho", "colg", "hook" } },
+            { "generador", new[] { "generador", "generator" } },
+            { "totem", new[] { "totem", "hex", "maleficio" } },
+            { "obsesion", new[] { "obsesion", "obsession" } },
+            { "curar", new[] { "cura", "heal" } },
+            { "bloquea", new[] { "bloque", "block" } },
+            { "ventana", new[] { "ventana", "window", "vault", "salt" } },
+            { "palet", new[] { "palet", "pallet" } },
+            { "taquilla", new[] { "taquilla", "locker" } },
+            { "puerta", new[] { "puerta", "salida", "exit gate", "gate" } },
+            { "endgame", new[] { "fin de partida", "colapso", "end game", "endgame", "collapse" } },
+            { "ruido", new[] { "ruido", "noise", "notificacion", "notification" } },
+            { "ataque", new[] { "ataque", "attack", "golpe", "hit" } },
+            { "instakill", new[] { "matar", "mori", "kill" } },
+            { "oneshot", new[] { "estado de agonia", "dying state", "golpe basico" } },
             { "recarga", new[] { "recarg", "reload", "enfriamiento", "cooldown" } },
         };
         static IEnumerable<string> AddonWordAlts(string w)
@@ -3731,6 +3745,22 @@ Puerto=8765
             foreach (var kv in AddonSyn)
                 if (w.StartsWith(kv.Key.Substring(0, Math.Min(kv.Key.Length, 4))) && w.Length >= 4 || w == kv.Key)
                     foreach (var alt in kv.Value) yield return alt;
+        }
+
+        // busca palabras y numeros en el nombre y la descripcion: primero los que tienen todas (o la mayor cantidad)
+        List<Entry> EffectSearch(IEnumerable<Entry> list, string rest, Func<IEnumerable<Entry>, IEnumerable<Entry>> order)
+        {
+            var words = rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Where(w => !AddonFiller.Contains(w)).ToList();
+            if (words.Count == 0) return order(list).ToList();
+            var scored = list.Select(a =>
+            {
+                string txt = " " + Txt.Norm(a.Name + " " + a.NameEs + " " + a.Info + " " + a.InfoEn) + " ";
+                int hits = words.Count(w => AddonWordAlts(w).Any(alt => Regex.IsMatch(alt, "^[0-9]+$") ? txt.Contains(" " + alt + " ") : txt.Contains(alt)));
+                return new { A = a, H = hits };
+            }).Where(x => x.H > 0).ToList();
+            if (scored.Count == 0) return new List<Entry>();
+            int best = scored.Max(x => x.H);
+            return order(scored.Where(x => x.H == best).Select(x => x.A)).Take(30).ToList();
         }
 
         public bool HasKiller { get { return st.Killer != null; } }
@@ -3867,7 +3897,7 @@ Puerto=8765
                 if (ctrl) return;
                 foreach (char c in text) if (!char.IsControl(c)) SetText(tb.Text + c);
             }
-            const string HintText = "Enter: anotar · \"noed?\" o Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\n\"addon\" · \"addon rojo\" · \"quitar …\" · \"cambiar …\" · \"duda …\"";
+            const string HintText = "Enter: anotar · \"noed?\" o Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\n\"addon\" · \"addon 15 lento\" · \"perk aura gancho\" · \"quitar …\" · \"cambiar …\" · \"duda …\"";
             public void FocusText() { tb.Focus(); }
             public void SetText(string s) { tb.Text = s; tb.SelectionStart = s.Length; }
 
