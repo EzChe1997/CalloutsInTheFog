@@ -1414,8 +1414,8 @@ Puerto=8765
         }
 
         // color de la rareza como lo dice la gente: rojo = iridiscente, violeta, verde, amarillo, marron
-        static readonly Regex ColorRx = new Regex(@"\b(rojos?|rojas?|red|iridiscentes?|iri|visceral|violetas?|morad[oa]s?|purpuras?|lilas?|purple|violet|verdes?|green|amarill[oa]s?|yellow|marron(?:es)?|cafe|brown)\b");
-        static string ColorRarity(string w)
+        internal static readonly Regex ColorRx = new Regex(@"\b(rojos?|rojas?|red|iridiscentes?|iri|visceral|violetas?|morad[oa]s?|purpuras?|lilas?|purple|violet|verdes?|green|amarill[oa]s?|yellow|marron(?:es)?|cafe|brown)\b");
+        internal static string ColorRarity(string w)
         {
             if (Regex.IsMatch(w, "^(roj|red|irid|iri$|visc)")) return "visceral";
             if (Regex.IsMatch(w, "^(viol|morad|purp|lila)")) return "veryrare";
@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 25;
+        public const int AppVersion = 26;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3215,6 +3215,28 @@ Puerto=8765
         {
             string n = Txt.Norm(q);
             if (n.Length == 0) return new List<Entry>();
+            // "addon [color] [palabra]": todos los addons del killer anotado, de mejor (rojo) a peor (marron)
+            var am = Regex.Match(n, @"^(?:addons?|add ons?|adon|accesorios?)\b\s*(.*)$");
+            if (am.Success)
+            {
+                if (st.Killer == null) return new List<Entry>();
+                string rest = am.Groups[1].Value.Trim();
+                IEnumerable<Entry> list = cat.Addons.Where(a => a.Killer == st.Killer.Name);
+                var cm = State.ColorRx.Match(rest);
+                if (cm.Success)
+                {
+                    string rar = State.ColorRarity(cm.Value);
+                    list = list.Where(a => a.Rarity == rar || (rar == "visceral" && a.Rarity == "iridescent"));
+                    rest = rest.Remove(cm.Index, cm.Length).Trim();
+                }
+                foreach (var w in rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string ww = w;
+                    list = list.Where(a => Txt.Norm(a.Name).Contains(ww) || (a.NameEs != null && Txt.Norm(a.NameEs).Contains(ww))
+                                        || Txt.Norm(a.Info ?? "").Contains(ww) || Txt.Norm(a.InfoEn ?? "").Contains(ww));
+                }
+                return list.OrderBy(a => RarityRank(a.Rarity)).ThenBy(a => DName(a)).ToList();
+            }
             var addons = st.Killer != null ? cat.Addons.Where(a => a.Killer == st.Killer.Name) : cat.Addons;
             var pool = cat.Killers.Concat(cat.Perks).Concat(addons).Concat(cat.Offerings);
             return pool.Select(e =>
@@ -3234,6 +3256,12 @@ Puerto=8765
             }).Where(x => x.S > 0).OrderByDescending(x => x.S).ThenBy(x => x.E.Name.Length).Take(8).Select(x => x.E).ToList();
         }
 
+        public bool HasKiller { get { return st.Killer != null; } }
+        static int RarityRank(string r)
+        {
+            switch (r) { case "iridescent": return 0; case "visceral": return 1; case "veryrare": return 2; case "rare": return 3; case "uncommon": return 4; case "common": return 5; default: return 6; }
+        }
+
         public string SuggestTag(Entry e)
         {
             switch (e.K)
@@ -3249,7 +3277,7 @@ Puerto=8765
             switch (rar) { case "visceral": return "rojo"; case "veryrare": return "violeta"; case "rare": return "verde"; case "uncommon": return "amarillo"; case "common": return "marrón"; default: return ""; }
         }
 
-        static readonly Regex TypedCmdRx = new Regex(@"^(?:tiene|tenia|quitar?|sacar?|borrar?|creo|probablemente|capaz|el killer|killer|ofrenda|addon|no tiene|confirmad|descartad|el (?:uno|dos|tres|cuatro|cinco|[1-5]))\b");
+        static readonly Regex TypedCmdRx = new Regex(@"^(?:tiene|tenia|quitar?|sacar?|borrar?|creo|probablemente|capaz|el killer|killer|ofrenda|no tiene|confirmad|descartad|el (?:uno|dos|tres|cuatro|cinco|[1-5]))\b");
 
         // Enter: anota la sugerencia elegida (o, si es un comando, lo aplica como si lo hubiera dicho)
         public void SubmitTyped(string text, Entry picked, bool doubt, bool byArrows)
@@ -3295,7 +3323,7 @@ Puerto=8765
                 lb = new ListBox { Dock = DockStyle.Top, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(18, 18, 24), ForeColor = Color.Gainsboro,
                                    DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 24, Height = 0, IntegralHeight = false, Font = new Font("Segoe UI", 10.5f) };
                 hint = new Label { Dock = DockStyle.Top, Height = 36, ForeColor = Color.FromArgb(140, 140, 155), Font = new Font("Segoe UI", 8.5f),
-                                   Text = "Enter: anotar y cerrar · Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\nTambién comandos: \"quitar surge\", \"el killer es nurse\", \"addon rojo\"" };
+                                   Text = HintText };
                 Controls.Add(hint); Controls.Add(lb); Controls.Add(tb);
                 tb.TextChanged += (s, e) => Refresh2();
                 lb.DrawItem += DrawSugg;
@@ -3306,6 +3334,7 @@ Puerto=8765
             }
 
             public void Open() { tb.Text = ""; Refresh2(); Show(); }
+            const string HintText = "Enter: anotar y cerrar · Shift+Enter: como sospecha · ↑↓ elegir · Esc: cerrar\n\"addon\": los del killer de mejor a peor · \"addon rojo\" · \"quitar surge\"";
             public void FocusText() { tb.Focus(); }
             public void SetText(string s) { tb.Text = s; tb.SelectionStart = s.Length; }
 
@@ -3316,7 +3345,11 @@ Puerto=8765
                 foreach (var e in sugg) lb.Items.Add(e);
                 if (sugg.Count > 0) lb.SelectedIndex = 0;
                 byArrows = false;
-                lb.Height = sugg.Count * lb.ItemHeight;
+                lb.Height = Math.Min(sugg.Count, 10) * lb.ItemHeight; // con mas de 10 aparece la barra para bajar
+                if (sugg.Count > 0) lb.TopIndex = 0;
+                bool noKiller = Regex.IsMatch(Txt.Norm(tb.Text), @"^(?:addons?|add ons?|adon|accesorios?)\b") && !ov.HasKiller;
+                hint.Text = noKiller ? "Primero anotá el killer (escribí su nombre) para ver sus addons." : HintText;
+                hint.ForeColor = noKiller ? Color.FromArgb(240, 170, 80) : Color.FromArgb(140, 140, 155);
                 Height = Padding.Vertical + tb.Height + lb.Height + hint.Height + 4;
             }
 

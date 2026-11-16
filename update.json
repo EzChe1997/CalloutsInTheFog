@@ -1,8 +1,8 @@
 {
-    "version":  25,
-    "notes":  "El cuadro para escribir se cierra al elegir",
-    "date":  "2026-11-15 21:40",
+    "version":  26,
+    "notes":  "Escribir addon: lista los addons del killer de mejor a peor",
+    "date":  "2026-11-15 21:44",
     "files":  {
-                  "DbdOverlay.exe":  "2547f8f4cd3e485f6f10d4786df132f9b450f6c79e17ed9219fea65cfac865af"
+                  "DbdOverlay.exe":  "450200e4b153a927c8e96bddd72d5e3eb0bc53b473af560b890e9e0a39da190b"
               }
 }
