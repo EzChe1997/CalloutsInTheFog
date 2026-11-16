@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 29;
+        public const int AppVersion = 30;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2363,6 +2363,7 @@ Puerto=8765
         readonly string dir;
         Cfg cfg; Catalog cat; State st; Mic mic;
         int port, vkTalk, vkClear, vkNames, vkHelp;
+        bool talkShift, talkCtrl, talkAlt;
         bool helpShown;
         string HelpKeyName { get { return cfg.Get("TeclaAyuda", "H"); } }
 
@@ -2484,12 +2485,12 @@ Puerto=8765
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             MakeFonts();
 
-            vkTalk = Vk(cfg.Get("Tecla", "Alt"));
+            string tn; ParseCombo(cfg.Get("Tecla", "Alt"), out vkTalk, out talkShift, out talkCtrl, out talkAlt, out tn);
             if (vkTalk == 0) vkTalk = (int)Keys.Menu;
-            vkClear = Vk(cfg.Get("TeclaLimpiar", "G"));
+            ParseCombo(cfg.Get("TeclaLimpiar", "G"), out vkClear, out clearSh, out clearCt, out clearAl, out tn);
             SetTypeKey(cfg.Get("TeclaEscribir", "Ctrl+T"));
-            vkNames = Vk(cfg.Get("TeclaNombres", ""));
-            vkHelp = Vk(cfg.Get("TeclaAyuda", "H"));
+            ParseCombo(cfg.Get("TeclaNombres", ""), out vkNames, out namesSh, out namesCt, out namesAl, out tn);
+            ParseCombo(cfg.Get("TeclaAyuda", "H"), out vkHelp, out helpSh, out helpCt, out helpAl, out tn);
             showNames = Regex.IsMatch(cfg.Get("Nombres", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase);
             port = cfg.GetInt("Puerto", 8765);
 
@@ -2508,9 +2509,13 @@ Puerto=8765
             foreach (var si in StatusIcons) GetIcon(si.Item2); // iconos de estados: se bajan una vez
             if (!Preview) // --vista: solo dibuja (sin voz, sin sala, sin Steam) para probar el aspecto
             {
-                StartVoice();
-                if (ListenOn) StartListen();
-                if (HandsOn) StartHands();
+                if (VoiceOn)
+                {
+                    StartVoice();
+                    if (ListenOn) StartListen();
+                    if (HandsOn) StartHands();
+                }
+                else DebugEvent("voz apagada desde el menú: sin Whisper, sin micrófono");
                 StartRoom();
                 UpdateRoomMenu();
                 // sala automatica: mira cada 5 s si DBD esta abierto (el vigia de Steam solo vive mientras el juego corre)
@@ -2571,6 +2576,43 @@ Puerto=8765
             return null;
         }
 
+        // ---- voz on/off (menu del icono): apagada no corre Whisper, ni el microfono, ni Discord, ni "sin tecla"
+        bool VoiceOn { get { return !Regex.IsMatch(cfg.Get("Voz", "si"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
+        Process whisperProc;
+
+        void SetVoice(bool on)
+        {
+            SetCfg("Voz", on ? "si" : "no");
+            if (on)
+            {
+                StartVoice();
+                if (voice && ListenOn) StartListen();
+                if (voice && HandsOn) StartHands();
+                Feedback(voice ? "voz encendida: cargando Whisper…" : "voz encendida, pero esta PC no tiene Whisper (instalalo desde el menú)", Color.FromArgb(150, 220, 150), 5000);
+            }
+            else
+            {
+                StopHands();
+                if (listening) StopListen();
+                talking = false; releaseAt = -1; micRestartAt = -1;
+                if (mic != null) { try { mic.Stop(); } catch { } mic = null; }
+                StopWhisper();
+                voice = false; serverReady = false; statusLine = "";
+                DebugEvent("voz apagada: Whisper cerrado, micrófono liberado");
+                Feedback("voz apagada: Whisper cerrado y micrófono liberado (" + typeKeyName + " para escribir)", Color.Silver, 5000);
+            }
+            Relayout();
+        }
+
+        void StopWhisper()
+        {
+            // solo el que arranco esta app (si ya habia uno corriendo de antes, no es nuestro)
+            var p = whisperProc; whisperProc = null;
+            if (p == null) return;
+            try { if (!p.HasExited) { p.Kill(); p.WaitForExit(2000); } } catch { }
+            try { p.Dispose(); } catch { }
+        }
+
         void StartVoice()
         {
             string exe = FindWhisperExe(), model = FindModel();
@@ -2608,6 +2650,7 @@ Puerto=8765
                 { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(exe) };
                 var p = Process.Start(psi);
                 Job.Add(p);
+                whisperProc = p;
                 DebugEvent("Whisper arrancando: " + exe + " · modelo " + Path.GetFileName(model) + " · " + threads + " hilos");
             }
             catch (Exception ex) { statusLine = "Whisper no arrancó: " + ex.Message; return; }
@@ -3181,34 +3224,156 @@ Puerto=8765
             }) { IsBackground = true }.Start();
         }
 
+        // ---- teclas configurables: cada accion es una combinacion ("Shift+V", "Ctrl+Alt+F5", "XButton1" = boton lateral del mouse)
+        bool clearSh, clearCt, clearAl, helpSh, helpCt, helpAl, namesSh, namesCt, namesAl;
+        KeyCapture keyCapture;
+
+        void LoadKeys()
+        {
+            string n;
+            ParseCombo(cfg.Get("Tecla", "Alt"), out vkTalk, out talkShift, out talkCtrl, out talkAlt, out n);
+            if (vkTalk == 0) vkTalk = (int)Keys.Menu;
+            ParseCombo(cfg.Get("TeclaLimpiar", "G"), out vkClear, out clearSh, out clearCt, out clearAl, out n);
+            ParseCombo(cfg.Get("TeclaAyuda", "H"), out vkHelp, out helpSh, out helpCt, out helpAl, out n);
+            ParseCombo(cfg.Get("TeclaNombres", ""), out vkNames, out namesSh, out namesCt, out namesAl, out n);
+            SetTypeKey(cfg.Get("TeclaEscribir", "Ctrl+T"));
+            st.ClearKeyName = cfg.Get("TeclaLimpiar", "G");
+        }
+
+        // accion -> (clave de config, valor por defecto, se puede dejar sin tecla)
+        static readonly Tuple<string, string, string, bool>[] KeyActions = {
+            Tuple.Create("Hablar (mantener)", "Tecla", "Alt", false),
+            Tuple.Create("Escribir", "TeclaEscribir", "Ctrl+T", true),
+            Tuple.Create("Borrar lista (mantener 1 s)", "TeclaLimpiar", "G", true),
+            Tuple.Create("Ayuda (mantener)", "TeclaAyuda", "H", true),
+            Tuple.Create("Mostrar nombres", "TeclaNombres", "", true),
+        };
+
+        void AskKey(Tuple<string, string, string, bool> act)
+        {
+            if (keyCapture != null && !keyCapture.IsDisposed) keyCapture.Close();
+            keyCapture = new KeyCapture(act.Item1, cfg.Get(act.Item2, act.Item3), act.Item4);
+            keyCapture.Done += combo =>
+            {
+                // que no choque con otra accion
+                foreach (var o in KeyActions)
+                    if (o.Item2 != act.Item2 && combo.Length > 0 && string.Equals(cfg.Get(o.Item2, o.Item3), combo, StringComparison.OrdinalIgnoreCase))
+                    { Feedback(combo + " ya es la tecla de \"" + o.Item1 + "\"", Color.FromArgb(240, 170, 80), 5000); return; }
+                SetCfg(act.Item2, combo);
+                LoadKeys();
+                Feedback(act.Item1 + ": " + (combo.Length > 0 ? combo : "sin tecla"), Color.FromArgb(150, 220, 150), 4000);
+                Relayout();
+            };
+            keyCapture.Show();
+            keyCapture.Activate();
+        }
+
+        // ventanita: "apretá la combinación". Toma modificadores + tecla, un modificador solo, o un boton del mouse
+        class KeyCapture : Form
+        {
+            public event Action<string> Done;
+            readonly Label lbl, sub;
+            readonly bool allowNone;
+            bool other; // se apreto algo ademas de los modificadores
+
+            public KeyCapture(string action, string current, bool canBeNone)
+            {
+                allowNone = canBeNone;
+                FormBorderStyle = FormBorderStyle.FixedToolWindow; Text = "Tecla: " + action; StartPosition = FormStartPosition.CenterScreen;
+                TopMost = true; ShowInTaskbar = false; KeyPreview = true; Width = 440; Height = 170;
+                BackColor = Color.FromArgb(18, 18, 24);
+                lbl = new Label { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.White, Font = new Font("Segoe UI", 16f, FontStyle.Bold),
+                                  Text = current.Length > 0 ? current : "(sin tecla)" };
+                sub = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.TopCenter, ForeColor = Color.FromArgb(150, 150, 165), Font = new Font("Segoe UI", 9f),
+                                  Text = "Apretá la combinación nueva (por ejemplo Shift+V o un botón lateral del mouse).\nEsc: cancelar" + (canBeNone ? " · Supr: sin tecla" : "") };
+                Controls.Add(sub); Controls.Add(lbl);
+                KeyUp += OnUp;
+                MouseDown += OnMouse; lbl.MouseDown += OnMouse; sub.MouseDown += OnMouse;
+            }
+
+            static string Mods(Keys m)
+            {
+                string s = "";
+                if ((m & Keys.Control) != 0) s += "Ctrl+";
+                if ((m & Keys.Shift) != 0) s += "Shift+";
+                if ((m & Keys.Alt) != 0) s += "Alt+";
+                return s;
+            }
+            static bool IsMod(Keys k) { return k == Keys.ShiftKey || k == Keys.ControlKey || k == Keys.Menu || k == Keys.LShiftKey || k == Keys.RShiftKey || k == Keys.LControlKey || k == Keys.RControlKey || k == Keys.LMenu || k == Keys.RMenu; }
+
+            void Finish(string combo) { var d = Done; Close(); if (d != null) d(combo); }
+
+            void OnDown(object s, KeyEventArgs e)
+            {
+                e.Handled = e.SuppressKeyPress = true;
+                if (e.KeyCode == Keys.Escape && e.Modifiers == Keys.None) { Close(); return; }
+                if (e.KeyCode == Keys.Delete && e.Modifiers == Keys.None && allowNone) { Finish(""); return; }
+                if (IsMod(e.KeyCode)) { other = false; lbl.Text = Mods(e.Modifiers) + "…"; return; }
+                other = true;
+                Finish(Mods(e.Modifiers) + e.KeyCode);
+            }
+
+            // un modificador solo (por ejemplo "Alt" para hablar): se toma al soltarlo sin haber apretado otra tecla
+            void OnUp(object s, KeyEventArgs e)
+            {
+                e.Handled = true;
+                if (!IsMod(e.KeyCode) || other) return;
+                string m = e.KeyCode == Keys.ShiftKey || e.KeyCode == Keys.LShiftKey || e.KeyCode == Keys.RShiftKey ? "Shift"
+                         : e.KeyCode == Keys.ControlKey || e.KeyCode == Keys.LControlKey || e.KeyCode == Keys.RControlKey ? "Ctrl" : "Alt";
+                if (e.Modifiers == Keys.None) Finish(m);
+            }
+
+            // botones del mouse que no son el izquierdo ni el derecho (el del medio y los laterales)
+            void OnMouse(object s, MouseEventArgs e)
+            {
+                string b = e.Button == MouseButtons.XButton1 ? "XButton1" : e.Button == MouseButtons.XButton2 ? "XButton2" : e.Button == MouseButtons.Middle ? "MButton" : null;
+                if (b == null) return;
+                Finish(Mods(ModifierKeys) + b);
+            }
+
+
+            // todas las teclas (Esc, Enter, flechas, Alt, F10…) pasan por aca antes de que Windows las use para la ventana
+            protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+            {
+                if (msg.Msg == 0x100 || msg.Msg == 0x104) { OnDown(this, new KeyEventArgs(keyData)); return true; }
+                return base.ProcessCmdKey(ref msg, keyData);
+            }
+        }
+
         // ---- escribir en vez de hablar: cuadro con autocompletado (solo con el cursor libre: menu de ESC, lobby, fuera del juego)
         int vkType; bool typeKeyDown, typeShift, typeCtrl, typeAlt, typePending;
         string typeKeyName = "Ctrl+T";
 
         // "Shift+T", "Ctrl+T", "Alt+T", "Ctrl+Shift+T" o una tecla sola ("T")
-        void SetTypeKey(string spec)
+        void SetTypeKey(string spec) { ParseCombo(spec, out vkType, out typeShift, out typeCtrl, out typeAlt, out typeKeyName); }
+
+        // "Shift+V", "Ctrl+T", "Alt+T", "Ctrl+Shift+T" o una tecla sola ("V")
+        static void ParseCombo(string spec, out int vk, out bool sh, out bool ct, out bool al, out string name)
         {
             var parts = (spec ?? "").Split('+').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
             if (parts.Count == 0) parts.Add("T");
-            typeShift = typeCtrl = typeAlt = false;
+            sh = ct = al = false;
             foreach (var m in parts.Take(parts.Count - 1))
             {
                 string l = m.ToLowerInvariant();
-                if (l == "shift" || l == "mayus") typeShift = true;
-                else if (l == "ctrl" || l == "control") typeCtrl = true;
-                else if (l == "alt") typeAlt = true;
+                if (l == "shift" || l == "mayus") sh = true;
+                else if (l == "ctrl" || l == "control") ct = true;
+                else if (l == "alt") al = true;
             }
-            vkType = Vk(parts[parts.Count - 1]);
-            typeKeyName = string.Join("+", parts);
+            vk = Vk(parts[parts.Count - 1]);
+            name = string.Join("+", parts);
+        }
+
+        // los modificadores exactos (si la tecla misma es Shift/Ctrl/Alt, no se mira)
+        static bool ModsMatch(int vk, bool sh, bool ct, bool al)
+        {
+            if (vk >= 0x10 && vk <= 0x12 || vk >= 0xA0 && vk <= 0xA5) return true;
+            bool s = (GetAsyncKeyState(0x10) & 0x8000) != 0, c = (GetAsyncKeyState(0x11) & 0x8000) != 0, a = (GetAsyncKeyState(0x12) & 0x8000) != 0;
+            return s == sh && c == ct && a == al;
         }
 
         // la combinacion exacta: con Shift+T, la T sola o Ctrl+Shift+T no la abren
-        bool TypeComboDown()
-        {
-            if (!HotKey(vkType)) return false;
-            bool sh = (GetAsyncKeyState(0x10) & 0x8000) != 0, ct = (GetAsyncKeyState(0x11) & 0x8000) != 0, al = (GetAsyncKeyState(0x12) & 0x8000) != 0;
-            return sh == typeShift && ct == typeCtrl && al == typeAlt;
-        }
+        bool TypeComboDown() { return HotKey(vkType) && ModsMatch(vkType, typeShift, typeCtrl, typeAlt); }
         TypeBox typeBox;
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
         [DllImport("user32.dll")] static extern bool AttachThreadInput(int idAttach, int idAttachTo, bool attach);
@@ -3784,41 +3949,76 @@ Puerto=8765
             roomLeave = new ToolStripMenuItem("Salir de la sala con código", null, (s, e) => LeaveRoom());
             roomMenu.DropDownItems.Add(roomLeave);
             menu.Items.Add(roomMenu);
-            listenItem = new ToolStripMenuItem("Escuchar Discord (prueba)") { Checked = ListenOn };
+            // ---- todo lo de la voz junto, en un submenu
+            var voiceMenu = new ToolStripMenuItem("Voz (Whisper)");
+            var voiceOnItem = new ToolStripMenuItem("Reconocimiento de voz");
+            voiceOnItem.Click += (s, e) => SetVoice(!VoiceOn);
+            listenItem = new ToolStripMenuItem("Escuchar Discord (prueba)");
             listenItem.Click += (s, e) => SetListen(!ListenOn);
-            menu.Items.Add(listenItem);
-            handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)") { Checked = HandsOn };
+            handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)");
             handsItem.Click += (s, e) => SetHands(!HandsOn);
-            menu.Items.Add(handsItem);
-            var typeItem = new ToolStripMenuItem("Escribir en vez de hablar…");
-            typeItem.Click += (s, e) => OpenTypeBox();
-            menu.Items.Add(typeItem);
-            var typeKeyMenu = new ToolStripMenuItem("Tecla para escribir");
-            foreach (var opt in new[] { "Ctrl+T", "Shift+T", "Alt+T", "Ctrl+Shift+T", "T" })
-            {
-                string o = opt;
-                var it = new ToolStripMenuItem(o);
-                it.Click += (s, e) => { SetCfg("TeclaEscribir", o); SetTypeKey(o); Feedback("para escribir: " + o, Color.Silver, 3000); };
-                typeKeyMenu.DropDownItems.Add(it);
-            }
-            menu.Items.Add(typeKeyMenu);
-            menu.Opening += (s, e) =>
-            {
-                typeItem.Text = "Escribir en vez de hablar… (" + typeKeyName + ")";
-                foreach (ToolStripMenuItem it in typeKeyMenu.DropDownItems) it.Checked = string.Equals(it.Text, typeKeyName, StringComparison.OrdinalIgnoreCase);
-            };
             var heardItem = new ToolStripMenuItem("Mostrar lo que entiende Whisper");
             heardItem.Click += (s, e) => { SetCfg("VerTranscripcion", ShowHeard ? "no" : "si"); Feedback(ShowHeard ? "voy a mostrar lo que entiendo" : "ya no muestro lo que entiendo", Color.Silver, 3000); };
-            menu.Items.Add(heardItem);
-            menu.Items.Add("Ver todo lo que escuchó…", null, (s, e) =>
+            var heardLog = new ToolStripMenuItem("Ver todo lo que escuchó…", null, (s, e) =>
             {
                 string path = Path.Combine(dir, "logs", "escuchado.txt");
                 try { if (!File.Exists(path)) File.WriteAllText(path, "", Encoding.UTF8); Process.Start("notepad.exe", "\"" + path + "\""); } catch { }
             });
+            var installItem = new ToolStripMenuItem("Instalar voz (Whisper)…", null, (s, e) => InstallVoice());
+            voiceMenu.DropDownItems.Add(voiceOnItem);
+            voiceMenu.DropDownItems.Add(new ToolStripSeparator());
+            voiceMenu.DropDownItems.Add(handsItem);
+            voiceMenu.DropDownItems.Add(listenItem);
+            voiceMenu.DropDownItems.Add(heardItem);
+            voiceMenu.DropDownItems.Add(heardLog);
+            voiceMenu.DropDownItems.Add(new ToolStripSeparator());
+            voiceMenu.DropDownItems.Add(installItem);
+            menu.Items.Add(voiceMenu);
+            menu.Opening += (s, e) =>
+            {
+                bool v = VoiceOn;
+                voiceMenu.Text = "Voz (Whisper): " + (v ? "prendida" : "apagada");
+                voiceOnItem.Checked = v;
+                listenItem.Checked = ListenOn; handsItem.Checked = HandsOn; heardItem.Checked = ShowHeard;
+                // con la voz apagada, lo que depende de Whisper queda gris
+                listenItem.Enabled = handsItem.Enabled = heardItem.Enabled = v;
+                // si ya esta instalado (o instalandose) el boton queda deshabilitado
+                bool inst = voice || (FindWhisperExe() != null && FindModel() != null);
+                installItem.Enabled = !inst && !installing;
+                installItem.Text = inst ? "Whisper instalado ✓" : installing ? "Instalando Whisper…" : "Instalar voz (Whisper)…";
+            };
+
+            // ---- escribir y teclas
+            var typeItem = new ToolStripMenuItem("Escribir en vez de hablar…");
+            typeItem.Click += (s, e) => OpenTypeBox();
+            menu.Items.Add(typeItem);
+            var keysMenu = new ToolStripMenuItem("Teclas");
+            var keyItems = new List<Tuple<ToolStripMenuItem, Tuple<string, string, string, bool>>>();
+            foreach (var act in KeyActions)
+            {
+                var a2 = act;
+                var it = new ToolStripMenuItem(act.Item1);
+                it.Click += (s, e) => AskKey(a2);
+                keysMenu.DropDownItems.Add(it);
+                keyItems.Add(Tuple.Create(it, act));
+            }
+            keysMenu.DropDownItems.Add(new ToolStripSeparator());
             var onlyDbdItem = new ToolStripMenuItem("Teclas solo con DBD en primer plano");
             onlyDbdItem.Click += (s, e) => { SetCfg("TeclasSoloEnDBD", KeysOnlyInDbd ? "no" : "si"); Feedback(KeysOnlyInDbd ? "las teclas solo funcionan con DBD en primer plano" : "las teclas funcionan en cualquier ventana", Color.Silver, 3000); };
-            menu.Items.Insert(menu.Items.IndexOf(heardItem), onlyDbdItem);
-            menu.Opening += (s, e) => { heardItem.Checked = ShowHeard; onlyDbdItem.Checked = KeysOnlyInDbd; };
+            keysMenu.DropDownItems.Add(onlyDbdItem);
+            menu.Items.Add(keysMenu);
+            menu.Opening += (s, e) =>
+            {
+                typeItem.Text = "Escribir en vez de hablar… (" + typeKeyName + ")";
+                foreach (var ki in keyItems)
+                {
+                    string v = cfg.Get(ki.Item2.Item2, ki.Item2.Item3);
+                    ki.Item1.Text = ki.Item2.Item1 + ":  " + (v.Length > 0 ? v : "sin tecla") + "  (cambiar…)";
+                }
+                onlyDbdItem.Checked = KeysOnlyInDbd;
+            };
+
+            menu.Items.Add(new ToolStripSeparator());
             // tamaño de los íconos (los addons y la ofrenda se escalan junto con los perks)
             var sizeMenu = new ToolStripMenuItem("Tamaño de los íconos");
             var sizes = new[] { Tuple.Create("Chico", 40), Tuple.Create("Normal", 48), Tuple.Create("Grande", 60), Tuple.Create("Muy grande", 72), Tuple.Create("Enorme", 88), Tuple.Create("Gigante", 104) };
@@ -3867,14 +4067,7 @@ Puerto=8765
             langMenu.DropDownItems.Add(LangMenu("Nombres", "IdiomaNombres", "en"));
             langMenu.DropDownItems.Add(LangMenu("Descripciones", "IdiomaDescripciones", "es"));
             menu.Items.Add(langMenu);
-            var voiceItem = new ToolStripMenuItem("Instalar voz (Whisper)…", null, (s, e) => InstallVoice());
-            menu.Items.Add(voiceItem);
-            // si ya esta instalado (o instalandose) el boton queda deshabilitado
-            menu.Opening += (s, e) =>
-            {
-                voiceItem.Enabled = !voice && !installing;
-                voiceItem.Text = voice ? "Voz (Whisper) instalada ✓" : installing ? "Instalando voz (Whisper)…" : "Instalar voz (Whisper)…";
-            };
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Abrir configuración", null, (s, e) => { try { Process.Start("notepad.exe", "\"" + Path.Combine(dir, "config.ini") + "\""); } catch { } });
             menu.Items.Add("Editar apodos", null, (s, e) => { try { st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(dir, "apodos.txt") + "\""); } catch { } });
             menu.Items.Add("Abrir carpeta", null, (s, e) => { try { Process.Start("explorer.exe", "\"" + dir + "\""); } catch { } });
@@ -3905,6 +4098,7 @@ Puerto=8765
         {
             // escribiendo en el cuadro: las teclas son para el texto (la V, la G o la H no hacen nada)
             if (typeBox != null && typeBox.Visible) { typeKeyDown = true; return; }
+            if (keyCapture != null && !keyCapture.IsDisposed && keyCapture.Visible) return; // eligiendo una tecla: no se dispara nada
             keysGate = !KeysOnlyInDbd || DbdInFront();
             bool tk = vkType != 0 && TypeComboDown();
             // se abre al soltar la T: asi la tecla no queda apretada contra el cuadro ni contra el juego
@@ -3912,9 +4106,10 @@ Puerto=8765
             if (typePending && (GetAsyncKeyState(vkType) & 0x8000) == 0) { typePending = false; if (DbdInFront() || !KeysOnlyInDbd) OpenTypeBox(); }
             typeKeyDown = tk;
             int now = Environment.TickCount;
-            bool down = HotKey(vkTalk);
+            // hablar: hay que empezar con la combinacion exacta (Shift+V); despues alcanza con seguir apretando la V
+            bool down = HotKey(vkTalk) && (talking || ModsMatch(vkTalk, talkShift, talkCtrl, talkAlt));
 
-            if (mic != null && !mic.Running && micRestartAt < 0)
+            if (mic != null && VoiceOn && !mic.Running && micRestartAt < 0)
             {
                 Feedback("Micrófono: " + (mic.LastError.Length > 0 ? mic.LastError : "se cortó") + " (reintento…)", Color.OrangeRed, 6000);
                 DebugEvent("micrófono: " + (mic.LastError.Length > 0 ? mic.LastError : "se cortó") + " (reintento en 3 s)");
@@ -3924,7 +4119,7 @@ Puerto=8765
 
             if (!voice)
             {
-                if (down && !talkWarned)
+                if (down && !talkWarned && VoiceOn) // con la voz apagada a proposito, la tecla no dice nada
                 {
                     talkWarned = true;
                     Feedback(installing ? "instalando la voz, esperá…" : "esta PC no tiene Whisper: instalalo desde el ícono \"D\" (por ahora solo ver)", Color.Orange, 6000);
@@ -3954,7 +4149,7 @@ Puerto=8765
             if (vkClear != 0)
             {
                 // mantener 1 s = borrar todo; toque corto despues de borrar = deshacer
-                bool c = HotKey(vkClear);
+                bool c = HotKey(vkClear) && (clearDown || ModsMatch(vkClear, clearSh, clearCt, clearAl));
                 if (c && !clearDown) { clearStart = now; clearFired = false; clearHint = false; }
                 if (c && !clearFired)
                 {
@@ -3979,12 +4174,12 @@ Puerto=8765
             }
             if (vkHelp != 0)
             {
-                bool hk = HotKey(vkHelp);
+                bool hk = HotKey(vkHelp) && (helpShown || ModsMatch(vkHelp, helpSh, helpCt, helpAl));
                 if (hk != helpShown) { helpShown = hk; Relayout(); }
             }
             if (vkNames != 0)
             {
-                bool c = HotKey(vkNames);
+                bool c = HotKey(vkNames) && (namesDown || ModsMatch(vkNames, namesSh, namesCt, namesAl));
                 if (c && !namesDown) SetNames(!showNames);
                 namesDown = c;
             }

@@ -1,8 +1,8 @@
 {
-    "version":  29,
-    "notes":  "Cuadro para escribir: toma el foco sin simular teclas (sin sonido)",
-    "date":  "2026-11-15 22:00",
+    "version":  30,
+    "notes":  "Teclas configurables (apretando la combinacion), voz on/off, menu de voz agrupado, Shift+V",
+    "date":  "2026-11-15 22:20",
     "files":  {
-                  "DbdOverlay.exe":  "a64b766d2620ad135001a0b9983cbc1245a53645fb2bad76abbc620e5115413e"
+                  "DbdOverlay.exe":  "082276f67e843acf69d0e448fab9cf1ea39eec5839669bd504f1724db75a8161"
               }
 }
