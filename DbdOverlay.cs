@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 23;
+        public const int AppVersion = 24;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3734,7 +3734,10 @@ Puerto=8765
                 string path = Path.Combine(dir, "logs", "escuchado.txt");
                 try { if (!File.Exists(path)) File.WriteAllText(path, "", Encoding.UTF8); Process.Start("notepad.exe", "\"" + path + "\""); } catch { }
             });
-            menu.Opening += (s, e) => { heardItem.Checked = ShowHeard; };
+            var onlyDbdItem = new ToolStripMenuItem("Teclas solo con DBD en primer plano");
+            onlyDbdItem.Click += (s, e) => { SetCfg("TeclasSoloEnDBD", KeysOnlyInDbd ? "no" : "si"); Feedback(KeysOnlyInDbd ? "las teclas solo funcionan con DBD en primer plano" : "las teclas funcionan en cualquier ventana", Color.Silver, 3000); };
+            menu.Items.Insert(menu.Items.IndexOf(heardItem), onlyDbdItem);
+            menu.Opening += (s, e) => { heardItem.Checked = ShowHeard; onlyDbdItem.Checked = KeysOnlyInDbd; };
             // tamaño de los íconos (los addons y la ofrenda se escalan junto con los perks)
             var sizeMenu = new ToolStripMenuItem("Tamaño de los íconos");
             var sizes = new[] { Tuple.Create("Chico", 40), Tuple.Create("Normal", 48), Tuple.Create("Grande", 60), Tuple.Create("Muy grande", 72), Tuple.Create("Enorme", 88), Tuple.Create("Gigante", 104) };

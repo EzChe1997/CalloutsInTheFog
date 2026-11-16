@@ -1,8 +1,8 @@
 {
-    "version":  23,
-    "notes":  "Iconos de perks mas grandes dentro del rombo",
-    "date":  "2026-11-15 21:29",
+    "version":  24,
+    "notes":  "Opcion en el menu: teclas solo con DBD en primer plano",
+    "date":  "2026-11-15 21:38",
     "files":  {
-                  "DbdOverlay.exe":  "fe490b4e0e186eb5f62640ea770c712629d3880d5be6993819c9e3faac230601"
+                  "DbdOverlay.exe":  "6f257a3fc48d548b4524c0217fd6360da42d7411e2b43f266190c11692023f77"
               }
 }
