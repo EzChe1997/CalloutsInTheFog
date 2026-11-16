@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 26;
+        public const int AppVersion = 27;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2487,7 +2487,7 @@ Puerto=8765
             vkTalk = Vk(cfg.Get("Tecla", "Alt"));
             if (vkTalk == 0) vkTalk = (int)Keys.Menu;
             vkClear = Vk(cfg.Get("TeclaLimpiar", "G"));
-            vkType = Vk(cfg.Get("TeclaEscribir", "T"));
+            SetTypeKey(cfg.Get("TeclaEscribir", "Ctrl+T"));
             vkNames = Vk(cfg.Get("TeclaNombres", ""));
             vkHelp = Vk(cfg.Get("TeclaAyuda", "H"));
             showNames = Regex.IsMatch(cfg.Get("Nombres", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase);
@@ -3182,7 +3182,33 @@ Puerto=8765
         }
 
         // ---- escribir en vez de hablar: cuadro con autocompletado (solo con el cursor libre: menu de ESC, lobby, fuera del juego)
-        int vkType; bool typeKeyDown;
+        int vkType; bool typeKeyDown, typeShift, typeCtrl, typeAlt;
+        string typeKeyName = "Ctrl+T";
+
+        // "Shift+T", "Ctrl+T", "Alt+T", "Ctrl+Shift+T" o una tecla sola ("T")
+        void SetTypeKey(string spec)
+        {
+            var parts = (spec ?? "").Split('+').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+            if (parts.Count == 0) parts.Add("T");
+            typeShift = typeCtrl = typeAlt = false;
+            foreach (var m in parts.Take(parts.Count - 1))
+            {
+                string l = m.ToLowerInvariant();
+                if (l == "shift" || l == "mayus") typeShift = true;
+                else if (l == "ctrl" || l == "control") typeCtrl = true;
+                else if (l == "alt") typeAlt = true;
+            }
+            vkType = Vk(parts[parts.Count - 1]);
+            typeKeyName = string.Join("+", parts);
+        }
+
+        // la combinacion exacta: con Shift+T, la T sola o Ctrl+Shift+T no la abren
+        bool TypeComboDown()
+        {
+            if (!HotKey(vkType)) return false;
+            bool sh = (GetAsyncKeyState(0x10) & 0x8000) != 0, ct = (GetAsyncKeyState(0x11) & 0x8000) != 0, al = (GetAsyncKeyState(0x12) & 0x8000) != 0;
+            return sh == typeShift && ct == typeCtrl && al == typeAlt;
+        }
         TypeBox typeBox;
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
         [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
@@ -3758,7 +3784,23 @@ Puerto=8765
             handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)") { Checked = HandsOn };
             handsItem.Click += (s, e) => SetHands(!HandsOn);
             menu.Items.Add(handsItem);
-            menu.Items.Add("Escribir en vez de hablar… (" + cfg.Get("TeclaEscribir", "T") + ")", null, (s, e) => OpenTypeBox());
+            var typeItem = new ToolStripMenuItem("Escribir en vez de hablar…");
+            typeItem.Click += (s, e) => OpenTypeBox();
+            menu.Items.Add(typeItem);
+            var typeKeyMenu = new ToolStripMenuItem("Tecla para escribir");
+            foreach (var opt in new[] { "Ctrl+T", "Shift+T", "Alt+T", "Ctrl+Shift+T", "T" })
+            {
+                string o = opt;
+                var it = new ToolStripMenuItem(o);
+                it.Click += (s, e) => { SetCfg("TeclaEscribir", o); SetTypeKey(o); Feedback("para escribir: " + o, Color.Silver, 3000); };
+                typeKeyMenu.DropDownItems.Add(it);
+            }
+            menu.Items.Add(typeKeyMenu);
+            menu.Opening += (s, e) =>
+            {
+                typeItem.Text = "Escribir en vez de hablar… (" + typeKeyName + ")";
+                foreach (ToolStripMenuItem it in typeKeyMenu.DropDownItems) it.Checked = string.Equals(it.Text, typeKeyName, StringComparison.OrdinalIgnoreCase);
+            };
             var heardItem = new ToolStripMenuItem("Mostrar lo que entiende Whisper");
             heardItem.Click += (s, e) => { SetCfg("VerTranscripcion", ShowHeard ? "no" : "si"); Feedback(ShowHeard ? "voy a mostrar lo que entiendo" : "ya no muestro lo que entiendo", Color.Silver, 3000); };
             menu.Items.Add(heardItem);
@@ -3858,7 +3900,7 @@ Puerto=8765
             // escribiendo en el cuadro: las teclas son para el texto (la V, la G o la H no hacen nada)
             if (typeBox != null && typeBox.Visible) { typeKeyDown = true; return; }
             keysGate = !KeysOnlyInDbd || DbdInFront();
-            bool tk = vkType != 0 && HotKey(vkType);
+            bool tk = vkType != 0 && TypeComboDown();
             if (tk && !typeKeyDown && !talking && CursorFree()) OpenTypeBox();
             typeKeyDown = tk;
             int now = Environment.TickCount;

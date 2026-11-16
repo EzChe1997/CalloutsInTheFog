@@ -1,8 +1,8 @@
 {
-    "version":  26,
-    "notes":  "Escribir addon: lista los addons del killer de mejor a peor",
-    "date":  "2026-11-15 21:44",
+    "version":  27,
+    "notes":  "Combinacion para escribir configurable desde el menu (por defecto Ctrl+T)",
+    "date":  "2026-11-15 21:51",
     "files":  {
-                  "DbdOverlay.exe":  "450200e4b153a927c8e96bddd72d5e3eb0bc53b473af560b890e9e0a39da190b"
+                  "DbdOverlay.exe":  "2d7c88c144d25933fd4f4730f48b8e73cd6c5dd81726fa7544cab51ab9db0f2c"
               }
 }
