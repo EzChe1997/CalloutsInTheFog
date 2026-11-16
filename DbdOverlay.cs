@@ -2253,7 +2253,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 21;
+        public const int AppVersion = 22;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2893,7 +2893,7 @@ Puerto=8765
             const TextFormatFlags One = TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
             static readonly Color StatusColor = Color.FromArgb(240, 200, 110);
 
-            class Op { public string T; public Image Img; public Rectangle R; public bool Status; }
+            class Op { public string T; public Image Img; public Rectangle R; public Color C; public bool Bold; }
             List<Op> ops = new List<Op>();
 
             public HoverTip(Font title, Font body, Func<string, Image> getIcon)
@@ -2912,16 +2912,42 @@ Puerto=8765
             static int W(string s, Font f) { return TextRenderer.MeasureText(s, f, new Size(int.MaxValue, int.MaxValue), One).Width; }
 
             // arma el texto palabra por palabra: los estados van con su icono y resaltados
+            // unidades cortas: "32 metros" -> "32m", "30 segundos" -> "30s", "4 %" -> "4%"
+            static readonly Regex UnitRx = new Regex(@"(\d+(?:[.,]\d+)?)\s*(?:(metros?|meters?|metres?)|(segundos?|seconds?)|(%|por ciento|percent))(?![\p{L}])", RegexOptions.IgnoreCase);
+            static readonly Regex NumTokRx = new Regex(@"^[+\-−]?\d");
+            static readonly Color NumColor = Color.FromArgb(120, 200, 255), BulletColor = Color.FromArgb(150, 150, 170), TriggerColor = Color.White;
+
+            static string Shorten(string s)
+            {
+                return UnitRx.Replace(s, m => m.Groups[1].Value + (m.Groups[2].Success ? "m" : m.Groups[3].Success ? "s" : "%"));
+            }
+
             Size LayoutBody(int maxW)
             {
                 ops = new List<Op>();
-                int lh = Math.Max(fb.Height, fk.Height) + 2, isz = fb.Height, space = W("a a", fb) - W("aa", fb);
+                int lh = Math.Max(fb.Height, fk.Height) + 1, isz = fb.Height, space = W("a a", fb) - W("aa", fb);
                 // TextRenderer suma un margen a cada medida: se descuenta para que las palabras queden a distancia normal
                 int over = Math.Max(0, 2 * W("a", fb) - W("aa", fb)), overK = Math.Max(0, 2 * W("a", fk) - W("aa", fk));
                 int x = 0, y = 0, wmax = 0;
-                foreach (var para in body.Split('\n'))
+                bool first = true;
+                foreach (var raw in Shorten(body).Split('\n'))
                 {
-                    if (para.Trim().Length == 0) { y += lh / 2; continue; }
+                    string para = raw.Trim();
+                    if (para.Length == 0) continue;
+                    if (!first) y += lh / 3; // aire entre parrafos y vinetas
+                    first = false;
+                    // vinetas: punto de color y las lineas siguientes van sangradas
+                    int indent = 0;
+                    bool bullet = para.StartsWith("•");
+                    if (bullet)
+                    {
+                        para = para.TrimStart('•', ' ');
+                        ops.Add(new Op { T = "•", R = new Rectangle(0, y, W("•", fk) + 2, lh), C = BulletColor, Bold = true });
+                        indent = W("• ", fk) - overK;
+                    }
+                    x = indent;
+                    // la condicion ("Cuando...:", "While...:") va mas brillante para separarla de los efectos
+                    Color baseC = !bullet && para.EndsWith(":") ? TriggerColor : Color.Gainsboro;
                     // trozos: texto comun y estados
                     var parts = new List<Tuple<string, string>>(); // (texto, archivo de icono o null)
                     int pos = 0;
@@ -2944,25 +2970,27 @@ Puerto=8765
                         {
                             var img = icon(p.Item2);
                             int ww = (img != null ? isz + 2 : 0) + W(p.Item1, fk) - overK;
-                            if (x > 0 && x + ww > maxW) { x = 0; y += lh; }
+                            if (x > indent && x + ww > maxW) { x = indent; y += lh; }
                             if (img != null) { ops.Add(new Op { Img = img, R = new Rectangle(x, y + (lh - isz) / 2 - 1, isz, isz) }); x += isz + 2; }
                             int tw = W(p.Item1, fk) - overK;
-                            ops.Add(new Op { T = p.Item1, R = new Rectangle(x, y, tw + 2, lh), Status = true });
+                            ops.Add(new Op { T = p.Item1, R = new Rectangle(x, y, tw + 2, lh), C = StatusColor, Bold = true });
                             x += tw; wmax = Math.Max(wmax, x);
                             continue;
                         }
-                        // texto comun: palabra por palabra (los espacios se respetan)
-                        foreach (var tok in Regex.Split(p.Item1, @"(\s+)"))
+                        // texto comun: palabra por palabra; los numeros resaltados
+                        foreach (var tok in Regex.Split(p.Item1, @"(\s+|(?<=\d[%sm]?)(?=[.,;:)]+(?:\s|$)))"))
                         {
                             if (tok.Length == 0) continue;
-                            if (tok.Trim().Length == 0) { if (x > 0) x += space; continue; }
-                            int tw = W(tok, fb) - over;
-                            if (x > 0 && x + tw > maxW) { x = 0; y += lh; }
-                            ops.Add(new Op { T = tok, R = new Rectangle(x, y, tw + 2, lh) });
+                            if (tok.Trim().Length == 0) { if (x > indent) x += space; continue; }
+                            bool num = NumTokRx.IsMatch(tok);
+                            var f = num ? fk : fb;
+                            int tw = W(tok, f) - (num ? overK : over);
+                            if (x > indent && x + tw > maxW) { x = indent; y += lh; }
+                            ops.Add(new Op { T = tok, R = new Rectangle(x, y, tw + 2, lh), C = num ? NumColor : baseC, Bold = num });
                             x += tw; wmax = Math.Max(wmax, x);
                         }
                     }
-                    x = 0; y += lh;
+                    y += lh;
                 }
                 return new Size(wmax, y);
             }
@@ -2999,7 +3027,7 @@ Puerto=8765
                 {
                     var rr = op.R; rr.Offset(Pad, y);
                     if (op.Img != null) g.DrawImage(op.Img, rr);
-                    else TextRenderer.DrawText(g, op.T, op.Status ? fk : fb, rr, op.Status ? StatusColor : Color.Gainsboro, One);
+                    else TextRenderer.DrawText(g, op.T, op.Bold ? fk : fb, rr, op.C, One);
                 }
             }
         }

@@ -1,8 +1,8 @@
 {
-    "version":  21,
-    "notes":  "Iconos de estados en las descripciones; las teclas solo funcionan con DBD en primer plano",
-    "date":  "2026-11-15 21:15",
+    "version":  22,
+    "notes":  "Descripciones mas legibles: numeros resaltados, unidades cortas, vinetas separadas",
+    "date":  "2026-11-15 21:26",
     "files":  {
-                  "DbdOverlay.exe":  "1d30a4022d277c53b5c0367eea1f9717f0f0f8d1d7651ee1493026e051ad3832"
+                  "DbdOverlay.exe":  "4d5c2cef6ae3093788651f8c8d7f5ac1eb470752d29fd77198336c6bfc67c4cb"
               }
 }
