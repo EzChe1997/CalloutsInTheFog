@@ -761,6 +761,8 @@ Puerto=8765
     {
         public Entry Killer;
         public List<Entry> Perks = new List<Entry>(), Addons = new List<Entry>();
+        public long LastChange; // hora (unix) del ultimo cambio de la lista: al juntarse un grupo gana la mas nueva
+        public bool HasAny() { return Killer != null || Perks.Count > 0 || Addons.Count > 0 || Offering != null; }
         Catalog cat;
         public const double Threshold = 0.66;
 
@@ -1691,6 +1693,7 @@ Puerto=8765
             foreach (var a in Addons) l.Add(a.Rarity == "nota" ? "nota=" + a.Name : "addon=" + a.Name + "|" + a.Killer);
             if (Offering != null) l.Add((Offering.Rarity == "nota" ? "ofrendanota=" : "ofrenda=") + Offering.Name);
             foreach (var d in Doubt) l.Add("duda=" + d.Name);
+            if (LastChange > 0) l.Add("cambio=" + LastChange);
             try { File.WriteAllLines(path, l, Encoding.UTF8); } catch { }
         }
 
@@ -1713,6 +1716,7 @@ Puerto=8765
                     var e = cat.Addons.FirstOrDefault(x => x.Name == parts[0] && (parts.Length < 2 || x.Killer == parts[1]));
                     if (e != null) Addons.Add(e);
                 }
+                else if (k == "cambio") { long lc; if (long.TryParse(v, out lc)) LastChange = lc; }
                 else if (k == "duda")
                 {
                     var e = Items().FirstOrDefault(x => x.Name == v);
@@ -2446,7 +2450,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 39;
+        public const int AppVersion = 40;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2933,6 +2937,8 @@ Puerto=8765
             st.ClearKeyName = cfg.Get("TeclaLimpiar", "Shift+G");
             st.ReloadAliases();
             st.LoadFrom(Path.Combine(dir, "estado.txt"));
+            // estados de versiones viejas (sin "cambio="): la hora en que se guardo el archivo
+            if (st.LastChange == 0) try { var ef = new FileInfo(Path.Combine(dir, "estado.txt")); if (ef.Exists) st.LastChange = (long)(ef.LastWriteTimeUtc - new DateTime(1970, 1, 1)).TotalSeconds; } catch { }
 
             Debug("==== INICIO " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ====\r\n" + cat.Info + ", apodos: " + st.AliasCount +
                   "\r\nteclas: hablar=" + KeyName + " borrar=" + cfg.Get("TeclaLimpiar", "Shift+G") + " ayuda=" + cfg.Get("TeclaAyuda", "Shift+H") +
@@ -2965,6 +2971,7 @@ Puerto=8765
             topLater.Tick += (s, e) => { topLater.Stop(); TopAll(); };
             StartKeyWatch();
             StartWinEvents();
+            UpdateTopGuard();
             HoverTick();
             Schedule();
 
@@ -4675,8 +4682,11 @@ Puerto=8765
             }));
             room = r;
             roomMembers.Clear();
+            joinedAt = UnixNow();
+            joinedWithList = st.HasAny();
             r.Start(topic);
             if (ManualRoom) r.Publish(Stamp(new Dictionary<string, object> { { "join", true }, { "t", UnixNow() } }));
+            PublishSync(true);
             DebugEvent("sala: entrando a " + (ManualRoom ? "la sala " + cfg.Get("Sala", "") : "la del grupo de Steam") + (MyName.Length > 0 ? " como " + MyName : ""));
             UpdateRoomMenu();
         }
@@ -4770,6 +4780,7 @@ Puerto=8765
             bool mine = (from ?? "").ToString() == r.Me
                      || (steamMe.Length > 0 && steamLobby.Length > 0 && (h ?? "").ToString() == Fingerprint(steamMe))
                      || (MyName.Length > 0 && (name ?? "").ToString() == MyName);
+            if (HandleSync(op, mine)) return;
             object rt0;
             if (!mine && op.ContainsKey("reset") && op.TryGetValue("t", out rt0) && UnixNow() - Convert.ToInt64(rt0) < 120) { RecordMatch(); HideMap(false); }
             object mp;
@@ -4785,6 +4796,8 @@ Puerto=8765
             }
             string what = st.ApplyRemote(op);
             if (what.Length == 0) return; // ya estaba aplicado (por ejemplo el eco de lo propio)
+            object ct;
+            if (op.TryGetValue("t", out ct)) st.LastChange = Math.Max(st.LastChange, Convert.ToInt64(ct));
             st.Save(Path.Combine(dir, "estado.txt"));
             string who = SenderName(op);
             DebugEvent("sala: " + (mine ? "(propio) " : who + ": ") + what);
@@ -4794,6 +4807,7 @@ Puerto=8765
 
         void PublishDiff(object before)
         {
+            if (before != null) st.LastChange = UnixNow();
             if (room == null || before == null) return;
             var op = st.Diff(before);
             if (op == null) return;
@@ -4802,8 +4816,50 @@ Puerto=8765
 
         void PublishReset()
         {
+            st.LastChange = UnixNow();
             if (room == null) return;
             room.Publish(Stamp(new Dictionary<string, object> { { "reset", true } }));
+        }
+
+        // ---- sincronizar al juntarse: cada uno manda su lista entera con la hora de su ultimo cambio y todos se
+        // quedan con la mas nueva. Va como "borrar + agregar todo", asi las versiones viejas de la app tambien la toman.
+        long joinedAt; bool joinedWithList;
+        void PublishSync(bool hello)
+        {
+            if (room == null) return;
+            var op = st.Diff(State.EmptySnapshot()) ?? new Dictionary<string, object>();
+            op["reset"] = true; op["sync"] = true; op["lc"] = st.LastChange;
+            if (hello) op["hello"] = true;
+            room.Publish(Stamp(op));
+        }
+
+        // devuelve true si el mensaje ya quedo resuelto (no hay que aplicarlo como un cambio comun)
+        bool HandleSync(Dictionary<string, object> op, bool mine)
+        {
+            object o;
+            long t = op.TryGetValue("t", out o) ? Convert.ToInt64(o) : 0;
+            if (!op.ContainsKey("sync"))
+            {
+                // lo viejo de la sala (de antes de entrar) solo se usa si llegue con la lista vacia;
+                // si traia algo, decide la hora de cada lista
+                return joinedWithList && t > 0 && t < joinedAt - 5;
+            }
+            if (mine) return true;
+            long lc = op.TryGetValue("lc", out o) ? Convert.ToInt64(o) : 0;
+            if (lc > st.LastChange)
+            {
+                string what = st.ApplyRemote(op);
+                st.LastChange = lc;
+                st.Save(Path.Combine(dir, "estado.txt"));
+                DebugEvent("sala: me quedo con la lista de " + SenderName(op) + " (más nueva)" + (what.Length > 0 ? ": " + what : ""));
+                Feedback("lista igualada con " + SenderName(op), Color.FromArgb(130, 190, 255), 4000);
+            }
+            else if (lc < st.LastChange && op.ContainsKey("hello") && UnixNow() - t < 120)
+            {
+                DebugEvent("sala: " + SenderName(op) + " entró con una lista más vieja: le mando la mía");
+                PublishSync(false);
+            }
+            return true;
         }
 
         // estado completo (al crear una sala con codigo, para que el que entra vea lo que ya habia)
@@ -5754,6 +5810,7 @@ Puerto=8765
                     TopAll();
                     topLater.Stop(); topLater.Start(); // y otra vez en un rato, por si el juego se pone encima al arrancar
                     if (steamAuto && steamProc == null && DbdInFront()) SteamTick();
+                    UpdateTopGuard();
                     HoverTick();
                     return;
                 }
@@ -5762,6 +5819,35 @@ Puerto=8765
                 HoverTick();
             }
             catch { }
+        }
+
+        // DBD tambien se pone "siempre arriba" y lo repite solo (sin cambiar de ventana): mientras el juego esta al
+        // frente, cada 2 s se mira si quedo encima de la lista o del mapa y, solo en ese caso, se los vuelve a subir.
+        // Con DBD cerrado o en segundo plano este reloj no corre.
+        System.Windows.Forms.Timer topGuard;
+        bool topWarned;
+        [DllImport("user32.dll", EntryPoint = "GetWindow")] static extern IntPtr GetWindowRel(IntPtr h, uint cmd);
+        void UpdateTopGuard()
+        {
+            if (topGuard == null) { topGuard = new System.Windows.Forms.Timer { Interval = 2000 }; topGuard.Tick += (s, e) => GuardTop(); }
+            bool on = DbdInFront();
+            if (on && !topGuard.Enabled) topGuard.Start();
+            else if (!on && topGuard.Enabled) topGuard.Stop();
+        }
+        static bool IsAbove(IntPtr a, IntPtr b)
+        {
+            int n = 0;
+            for (var h = GetWindowRel(b, 3); h != IntPtr.Zero && n < 2000; h = GetWindowRel(h, 3), n++) if (h == a) return true; // 3 = la de arriba
+            return false;
+        }
+        void GuardTop()
+        {
+            if (!DbdInFront()) { topGuard.Stop(); return; }
+            var fg = GetForegroundWindow();
+            bool under = (Visible && IsAbove(fg, Handle)) || (mapWin != null && mapWin.Visible && IsAbove(fg, mapWin.Handle));
+            if (!under) return;
+            if (!topWarned) { topWarned = true; DebugEvent("DBD quedó encima de la lista: la vuelvo a subir (se avisa una sola vez)"); }
+            TopAll();
         }
 
         void TopAll()
@@ -6563,7 +6649,9 @@ Puerto=8765
             }
             if (args.Length >= 1 && args[0] == "--version") { File.WriteAllText(Path.Combine(dir, "version.txt"), Updater.AppVersion.ToString()); return; }
             bool created;
-            using (var mx = new Mutex(true, "DbdOverlay_SingleInstance", out created))
+            // --prueba: una copia de prueba en otra carpeta puede correr junto a la de verdad (para probar salas)
+            string mxName = args.Length >= 1 && args[0] == "--prueba" ? "DbdOverlay_Prueba_" + (dir.GetHashCode() & 0x7fffffff) : "DbdOverlay_SingleInstance";
+            using (var mx = new Mutex(true, mxName, out created))
             {
                 if (!created) { MessageBox.Show("DBD Overlay ya está abierto (mirá el ícono rojo junto al reloj).", "DBD Overlay"); return; }
                 Application.EnableVisualStyles();
