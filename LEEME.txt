@@ -1,5 +1,5 @@
-DBD Overlay - perks y addons del killer en pantalla
-====================================================
+Callouts in the Fog - lo que ve un sobreviviente, lo saben los cuatro
+=====================================================================
 
 1) Descomprimí esta carpeta donde quieras (por ejemplo en Documentos) y abrí DbdOverlay.exe.
    Si Windows dice "Windows protegió su PC": "Más información" -> "Ejecutar de todas formas"

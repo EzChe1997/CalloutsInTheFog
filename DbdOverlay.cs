@@ -1,4 +1,4 @@
-// DBD Overlay - anotar por voz los perks y addons del killer.
+// Callouts in the Fog (antes "DBD Overlay") - anotar los perks y addons del killer.
 // Compilar con build.ps1 (csc de .NET Framework 4, C# 5).
 using System;
 using System.Collections.Generic;
@@ -17,6 +17,29 @@ using System.Windows.Forms;
 
 namespace DbdOverlay
 {
+    // ------------------------------------------------------------ idioma de la app (textos de la interfaz)
+    // IdiomaApp=auto (el de Windows), es o en. Los textos van en el codigo: L("español", "english").
+    static class Lang
+    {
+        public static bool En;
+        public static string Setting = "auto";
+        public static void Init(string v)
+        {
+            Setting = (v ?? "auto").Trim().ToLowerInvariant();
+            if (Setting.StartsWith("es")) En = false;
+            else if (Setting.StartsWith("en")) En = true;
+            else { Setting = "auto"; En = !CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("es", StringComparison.OrdinalIgnoreCase); }
+        }
+        public static string L(string es, string en) { return En ? en : es; }
+        // resultados que no anotaron nada (para no mostrarlos como logro ni mandarlos a la sala)
+        public static bool Fail(string w)
+        {
+            if (string.IsNullOrEmpty(w)) return true;
+            return w.StartsWith("no ") || w.StartsWith("didn't") || w.StartsWith("nothing") || w.StartsWith("couldn't") || w.StartsWith("there's no") || w.StartsWith("there are no");
+        }
+        public static bool Already(string w) { return w.Contains("ya estaba") || w.Contains("already there"); }
+    }
+
     // ------------------------------------------------------------ config
     class Cfg
     {
@@ -35,7 +58,7 @@ namespace DbdOverlay
         }
 
         public const string Default =
-@"# DBD Overlay - configuracion (se lee al abrir el programa)
+@"# Callouts in the Fog - configuracion (se lee al abrir el programa)
 
 # Tecla que hay que MANTENER apretada mientras hablas.
 # Ejemplos: Alt, AltIzq, AltDer, F8, V, XButton1 (boton lateral de atras del mouse), XButton2, Capital (Bloq Mayus)
@@ -377,7 +400,7 @@ Puerto=8765
             else if (localVer.TryGetValue("perks.version", out v)) GameVersion = v;
             var changed = Datasets.Where(Changed).ToList();
             if (remoteVer != null && localVer.Count > 0 && changed.Count > 0)
-                DataNews = "datos del juego actualizados" + (GameVersion.Length > 0 ? " (" + GameVersion + ")" : "");
+                DataNews = Lang.L("datos del juego actualizados", "game data updated") + (GameVersion.Length > 0 ? " (" + GameVersion + ")" : "");
         }
 
         static bool Changed(string ds)
@@ -761,6 +784,7 @@ Puerto=8765
     {
         public Entry Killer;
         public List<Entry> Perks = new List<Entry>(), Addons = new List<Entry>();
+        static string L(string es, string en) { return Lang.L(es, en); }
         public long LastChange; // hora (unix) del ultimo cambio de la lista: al juntarse un grupo gana la mas nueva
         public bool HasAny() { return Killer != null || Perks.Count > 0 || Addons.Count > 0 || Offering != null; }
         Catalog cat;
@@ -852,7 +876,7 @@ Puerto=8765
         {
             var done = new List<string>();
             object o;
-            if (op.ContainsKey("reset")) { Clear(); done.Add("borró la lista"); }
+            if (op.ContainsKey("reset")) { Clear(); done.Add(L("borró la lista", "cleared the list")); }
             if (op.TryGetValue("del", out o) && o is System.Collections.ArrayList)
                 foreach (var x in (System.Collections.ArrayList)o)
                 {
@@ -870,7 +894,7 @@ Puerto=8765
                     else { if (Addons.Count >= 2) continue; Addons.Add(e); }
                     bool d = r.ContainsKey("d");
                     if (d) Doubt.Add(e);
-                    done.Add("+ " + (e.K == Kind.Offering ? "ofrenda: " : "") + e.Name + (d ? " (?)" : ""));
+                    done.Add("+ " + (e.K == Kind.Offering ? L("ofrenda: ", "offering: ") : "") + e.Name + (d ? " (?)" : ""));
                 }
             if (op.TryGetValue("conf", out o) && o is System.Collections.ArrayList)
                 foreach (var x in (System.Collections.ArrayList)o)
@@ -1069,7 +1093,7 @@ Puerto=8765
             bool ok = Perks.Remove(e) | Addons.Remove(e);
             if (Offering == e) { Offering = null; ok = true; }
             Doubt.Remove(e);
-            if (!ok) return "no estaba: " + e.Name;
+            if (!ok) return L("no estaba: ", "nothing to remove: ") + e.Name;
             undoSnap = before; undoAdded = null; undoAlias = null;
             return "- " + e.Name;
         }
@@ -1080,7 +1104,7 @@ Puerto=8765
             var before = (Snap)Snapshot();
             var list = old.K == Kind.Perk ? Perks : old.K == Kind.Addon ? Addons : null;
             if (old.K == Kind.Offering) Offering = neu;
-            else if (list == null || !list.Contains(old)) return "no estaba: " + old.Name;
+            else if (list == null || !list.Contains(old)) return L("no estaba: ", "nothing to replace: ") + old.Name;
             else if (list.Contains(neu)) list.Remove(old);
             else list[list.IndexOf(old)] = neu;
             Doubt.Remove(old);
@@ -1093,11 +1117,11 @@ Puerto=8765
         public string ToggleDoubt(Entry e)
         {
             var before = (Snap)Snapshot();
-            if (!Current().Contains(e)) return "no estaba: " + e.Name;
+            if (!Current().Contains(e)) return L("no estaba: ", "nothing to remove: ") + e.Name;
             undoSnap = before; undoAdded = null; undoAlias = null;
-            if (Doubt.Remove(e)) return "✓ " + e.Name + " confirmado";
+            if (Doubt.Remove(e)) return "✓ " + e.Name + L(" confirmado", " confirmed");
             Doubt.Add(e);
-            return e.Name + " ahora es sospecha (?)";
+            return e.Name + L(" ahora es sospecha (?)", " is now a guess (?)");
         }
 
         // cambio de killer: pide confirmacion si ya habia uno; al cambiar se van los addons (y sus sospechas) del anterior
@@ -1110,19 +1134,19 @@ Puerto=8765
             int n = Addons.Count;
             Killer = k;
             if (had && n > 0) { foreach (var a in Addons) Doubt.Remove(a); Addons.Clear(); }
-            return "killer: " + k.Name + (had && n > 0 ? " · addons borrados" : "");
+            return "killer: " + k.Name + (had && n > 0 ? L(" · addons borrados", " · add-ons cleared") : "");
         }
 
         string AddOne(Entry e)
         {
             if (e.K == Kind.Killer)
             {
-                if (Killer == e) return "el killer ya es " + e.Name;
+                if (Killer == e) return L("el killer ya es ", "the killer is already ") + e.Name;
                 // ya habia otro killer: se pide confirmacion (cambiar borra los addons del anterior)
                 if (Killer != null && !ConfirmedKiller)
                 {
                     PendingKiller = e; PendingUntil = Environment.TickCount + 20000;
-                    return "¿cambiar " + Killer.Name + " por " + e.Name + "? se borran los addons · decí/escribí \"sí\"";
+                    return L("¿cambiar ", "change ") + Killer.Name + L(" por ", " to ") + e.Name + L("? se borran los addons · decí/escribí \"sí\"", "? this clears the add-ons · say/type \"yes\"");
                 }
                 return ChangeKiller(e);
             }
@@ -1130,24 +1154,24 @@ Puerto=8765
             {
                 if (Offering == e || (Offering != null && Offering.Name == e.Name))
                 {
-                    if (!doubtMode && Doubt.Remove(Offering)) return "✓ ofrenda " + Offering.Name + " confirmada";
-                    return "la ofrenda " + e.Name + " ya estaba";
+                    if (!doubtMode && Doubt.Remove(Offering)) return L("✓ ofrenda ", "✓ offering ") + Offering.Name + L(" confirmada", " confirmed");
+                    return L("la ofrenda ", "the offering ") + e.Name + L(" ya estaba", " was already there");
                 }
-                string prev = Offering != null ? " (antes " + Offering.Name + ")" : "";
+                string prev = Offering != null ? L(" (antes ", " (was ") + Offering.Name + ")" : "";
                 if (Offering != null) Doubt.Remove(Offering);
                 Offering = e;
-                if (doubtMode) { Doubt.Add(e); return "+ ofrenda: " + e.Name + " (?)" + prev; }
-                return "+ ofrenda: " + e.Name + prev;
+                if (doubtMode) { Doubt.Add(e); return L("+ ofrenda: ", "+ offering: ") + e.Name + " (?)" + prev; }
+                return L("+ ofrenda: ", "+ offering: ") + e.Name + prev;
             }
             var list = e.K == Kind.Perk ? Perks : Addons;
             int max = e.K == Kind.Perk ? 4 : 2;
             if (list.Contains(e))
             {
                 // "tiene X" con X en duda = lo confirma
-                if (!doubtMode && Doubt.Remove(e)) return "✓ " + e.Name + " confirmado";
-                return e.Name + " ya estaba";
+                if (!doubtMode && Doubt.Remove(e)) return "✓ " + e.Name + L(" confirmado", " confirmed");
+                return e.Name + L(" ya estaba", " was already there");
             }
-            if (list.Count >= max) return "ya tiene " + max + (max == 4 ? " perks" : " addons") + ", no anoté " + e.Name + " (decí \"quitar ...\")";
+            if (list.Count >= max) return L("ya tiene ", "already has ") + max + (max == 4 ? " perks" : L(" addons", " add-ons")) + L(", no anoté ", ", didn't add ") + e.Name + L(" (decí \"quitar ...\")", " (say \"remove ...\")");
             list.Add(e);
             if (doubtMode) { Doubt.Add(e); return "+ " + e.Name + " (?)"; }
             return "+ " + e.Name;
@@ -1178,8 +1202,8 @@ Puerto=8765
                 string rest = cm.Groups[1].Value;
                 T("modo: confirmar -> \"" + rest + "\" (sospechas: " + Doubt.Count + ")");
                 var e = PickDoubt(rest);
-                if (e != null) { Doubt.Remove(e); return "✓ " + e.Name + " confirmado"; }
-                if (Strip(rest).Length == 0) return "no hay nada en duda para confirmar";
+                if (e != null) { Doubt.Remove(e); return "✓ " + e.Name + L(" confirmado", " confirmed"); }
+                if (Strip(rest).Length == 0) return L("no hay nada en duda para confirmar", "nothing to confirm");
                 t = "tiene " + rest; // "confirmado X" con X que no estaba en duda: se anota seguro
                 return null;
             }
@@ -1189,8 +1213,8 @@ Puerto=8765
                 string rest = dm.Groups[1].Value;
                 T("modo: descartar -> \"" + rest + "\" (sospechas: " + Doubt.Count + ")");
                 var e = PickDoubt(rest);
-                if (e != null) { RemoveEntry(e); return "✗ " + e.Name + " descartado"; }
-                if (Strip(rest).Length == 0) return "no hay nada en duda para descartar";
+                if (e != null) { RemoveEntry(e); return "✗ " + e.Name + L(" descartado", " discarded"); }
+                if (Strip(rest).Length == 0) return L("no hay nada en duda para descartar", "nothing to discard");
                 t = "quitar " + rest; // "descartado X" con X seguro: se quita igual
                 return null;
             }
@@ -1270,30 +1294,62 @@ Puerto=8765
             ReloadAliases();
         }
 
+        // frases en ingles -> la misma orden en español (el resto del analisis es uno solo)
+        static readonly Tuple<Regex, string>[] EnglishCmds = new[] {
+            Tuple.Create(new Regex(@"^\W*(?:i think|i guess|maybe|probably|might have|could be)\s+(?:(?:he|she|it|they)\s+)?(?:(?:has|have|had|got|is running|runs|running)\s+)?(?:(?:the|a|an)\s+)?", RegexOptions.IgnoreCase), "creo que tiene "),
+            Tuple.Create(new Regex(@"^\W*(?:(?:the\s+)?killer\s+is|it'?s|its|it\s+is)\s+(?:the\s+)?(?=\w)", RegexOptions.IgnoreCase), "el killer es "),
+            Tuple.Create(new Regex(@"^\W*(?:(?:he|she|it|they)\s+)?(?:has|have|had|got|is running|runs|running|brought)\s+(?:(?:the|a|an)\s+)?", RegexOptions.IgnoreCase), "tiene "),
+            Tuple.Create(new Regex(@"^\W*(?:remove|delete|take off|take out|drop)\s+(?:the\s+)?", RegexOptions.IgnoreCase), "quitar "),
+            Tuple.Create(new Regex(@"^\W*(?:undo|scratch that|that'?s wrong|wrong one|not that)\W*$", RegexOptions.IgnoreCase), "borra eso"),
+            Tuple.Create(new Regex(@"^\W*(?:yes|yeah|yep|yup|correct|right|that'?s it|that one)\W*$", RegexOptions.IgnoreCase), "si"),
+            Tuple.Create(new Regex(@"^\W*(?:nope|nah|cancel)\W*$", RegexOptions.IgnoreCase), "no"),
+            Tuple.Create(new Regex(@"^\W*none(?:\s+of\s+(?:those|them|these))?\W*$", RegexOptions.IgnoreCase), "ninguno"),
+            Tuple.Create(new Regex(@"^\W*(?:confirm|confirmed)\b", RegexOptions.IgnoreCase), "confirmado"),
+            Tuple.Create(new Regex(@"^\W*(?:discard|discarded)\b", RegexOptions.IgnoreCase), "descartado"),
+            Tuple.Create(new Regex(@"^\W*(?:offering|burned|burnt)\s+(?:(?:a|an|the)\s+)?", RegexOptions.IgnoreCase), "ofrenda "),
+            Tuple.Create(new Regex(@"^\W*(?:nickname|alias)\s+(.+?)\s+(?:is|means|=)\s+", RegexOptions.IgnoreCase), "apodo $1 es "),
+            Tuple.Create(new Regex(@"\badd[\s-]?ons?\s+(?:that|which)\s+", RegexOptions.IgnoreCase), "addon que "),
+        };
+        static readonly Regex EnglishPick = new Regex(@"^\W*(?:the\s+)?(?:number\s+)?(one|first|two|second|three|third|four|fourth|five|fifth)(?:\s+one)?\W*$", RegexOptions.IgnoreCase);
+        public static string FromEnglish(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return raw;
+            var pm = EnglishPick.Match(raw);
+            if (pm.Success)
+            {
+                string w = pm.Groups[1].Value.ToLowerInvariant();
+                return "el " + (w == "one" || w == "first" ? "uno" : w == "two" || w == "second" ? "dos" : w == "three" || w == "third" ? "tres" : w == "four" || w == "fourth" ? "cuatro" : "cinco");
+            }
+            foreach (var c in EnglishCmds)
+                if (c.Item1.IsMatch(raw)) { raw = c.Item1.Replace(raw, c.Item2, 1); if (!c.Item2.EndsWith(" ")) break; }
+            return raw;
+        }
+
         public string Apply(string raw)
         {
+            raw = FromEnglish(raw);
             string t0 = Txt.Norm(raw);
             // "no" a secas: descarta la sugerencia (¿...?) o, si no habia, deshace lo ultimo
             bool bareNo = Regex.IsMatch(t0, @"^(no|no no|nop|nah|negativo)$");
             if (bareNo && PendingKiller != null)
             {
                 PendingKiller = null;
-                return "ok, sigue " + (Killer != null ? Killer.Name : "sin killer");
+                return L("ok, sigue ", "ok, still ") + (Killer != null ? Killer.Name : L("sin killer", "no killer"));
             }
             if (bareNo && lastGuess != null)
             {
                 lastGuess = null; lastFail = null;
-                return "ok, no lo anoto";
+                return L("ok, no lo anoto", "ok, not adding it");
             }
             if (bareNo || UndoRx.IsMatch(t0))
             {
-                if (undoSnap == null) return "no hay nada para deshacer";
+                if (undoSnap == null) return L("no hay nada para deshacer", "nothing to undo");
                 Restore(undoSnap);
                 if (undoAlias != null) RemoveAlias(undoAlias);
                 exclude = new HashSet<Entry>(undoAdded.Where(x => x.Rarity != "nota"));
-                string what = undoAdded.Count > 0 ? string.Join(", ", undoAdded.Select(x => x.Name)) : "el último cambio";
+                string what = undoAdded.Count > 0 ? string.Join(", ", undoAdded.Select(x => x.Name)) : L("el último cambio", "the last change");
                 undoSnap = null; undoAdded = new List<Entry>(); undoAlias = null;
-                return "deshice: " + what + (exclude.Count > 0 ? " · repetilo, no lo voy a elegir de nuevo" : "");
+                return L("deshice: ", "undone: ") + what + (exclude.Count > 0 ? L(" · repetilo, no lo voy a elegir de nuevo", " · say it again, I won't pick that one") : "");
             }
 
             var before = (Snap)Snapshot();
@@ -1334,10 +1390,10 @@ Puerto=8765
         {
             raw = FixAddonWord(raw);
             string t = Txt.Norm(raw);
-            if (t.Length == 0) return "no escuché nada";
+            if (t.Length == 0) return L("no escuché nada", "didn't hear anything");
             // borrar todo NO se hace por voz (Whisper podria entenderlo sin querer): se usa la tecla
             if (Regex.IsMatch(t, @"\b(nueva partida|otra partida|borra(r)? todo|limpia(r)?( todo)?|reinicia(r)?|reset)\b"))
-                return "no borro por voz: mantené " + ClearKeyName + " 1 segundo";
+                return L("no borro por voz: mantené ", "no clearing by voice: hold ") + ClearKeyName + L(" 1 segundo", " for 1 second");
             ReloadAliases();
 
             // cambio de killer pendiente: "sí" lo confirma (y borra los addons), cualquier otra cosa lo cancela
@@ -1355,7 +1411,7 @@ Puerto=8765
             // (tambien "kirer es", "kiler es"; "killer" solo no se toca: "killer X" ya se entiende)
             t = Regex.Replace(t, @"^(?:(?:el|al)\s+)?(?:al|el)?(?:k|qu)i(?:ll?|r)er(?:e?s|esk|\s+es)\b(?:\s+(?:k|qu)i(?:ll?|r)er(?:e?s|esk|\s+es)?\b)*", "el killer es");
             t = Regex.Replace(t, @"^el que eres?\b", "el killer es");
-            if (t.Length == 0) return "no entendí";
+            if (t.Length == 0) return L("no entendí", "didn't get that");
 
             // elegir entre los addons candidatos: "el dos", "el primero", "ninguno"
             if (Pick != null)
@@ -1367,10 +1423,10 @@ Puerto=8765
                     string w = pm.Groups[1].Value;
                     var cands = Pick; var old = PickEntry;
                     Pick = null;
-                    if (w.StartsWith("ningun")) { RemoveEntry(old); return "- addon " + old.Name + " (ninguno de esos: describilo de otra forma)"; }
+                    if (w.StartsWith("ningun")) { RemoveEntry(old); return "- addon " + old.Name + L(" (ninguno de esos: describilo de otra forma)", " (none of those: describe it another way)"); }
                     int idx = w == "uno" || w == "1" || w.StartsWith("primer") ? 0 : w == "dos" || w == "2" || w.StartsWith("segund") ? 1
                             : w == "cuatro" || w == "4" || w.StartsWith("cuart") ? 3 : w == "cinco" || w == "5" || w.StartsWith("quint") ? 4 : 2;
-                    if (idx >= cands.Count) return "solo había " + cands.Count + " opciones";
+                    if (idx >= cands.Count) return L("solo había ", "there were only ") + cands.Count + L(" opciones", " options");
                     var ch = cands[idx];
                     Addons[Addons.IndexOf(old)] = ch;
                     Doubt.Remove(old);
@@ -1385,7 +1441,7 @@ Puerto=8765
             {
                 AddAlias(fail, guess);
                 learnedAlias = Txt.Norm(fail);
-                return AddOne(guess) + " · aprendí \"" + fail + "\"";
+                return AddOne(guess) + L(" · aprendí \"", " · learned \"") + fail + "\"";
             }
 
             // "apodo pain res es Pain Resonance"
@@ -1405,10 +1461,10 @@ Puerto=8765
                     target = Strip(target.Substring(kind.Length));
                 }
                 var h = Best(target, tpool);
-                if (nick.Length == 0 || h == null || h.S < Threshold) return "no entendí a qué te referís con \"" + target + "\"";
+                if (nick.Length == 0 || h == null || h.S < Threshold) return L("no entendí a qué te referís con \"", "didn't get what you mean by \"") + target + "\"";
                 AddAlias(nick, h.E);
                 learnedAlias = Txt.Norm(nick);
-                return "aprendí: \"" + nick + "\" = " + h.E.Name;
+                return L("aprendí: \"", "learned: \"") + nick + "\" = " + h.E.Name;
             }
 
             // "confirmado (X)" / "descartado (X)": resuelve sospechas
@@ -1439,9 +1495,9 @@ Puerto=8765
 
             if (remove && Regex.IsMatch(t, @"^((los|el|un|una) )?(add ?ons?|adons?|accesorios?)$"))
             {
-                if (Addons.Count == 0) return "no hay addons para quitar";
+                if (Addons.Count == 0) return L("no hay addons para quitar", "there are no add-ons to remove");
                 Addons.Clear();
-                return "addons borrados";
+                return L("addons borrados", "add-ons cleared");
             }
 
             // ofrenda: "ofrenda Ebony Mori", "trajo un mori", "quemó Shroud of Separation", "quitar ofrenda"
@@ -1453,9 +1509,9 @@ Puerto=8765
                 T("ruta ofrenda: \"" + rest + "\"");
                 if (remove)
                 {
-                    if (Offering == null) return "no hay ofrenda para quitar";
+                    if (Offering == null) return L("no hay ofrenda para quitar", "there's no offering to remove");
                     string n = Offering.Name; RemoveEntry(Offering);
-                    return "- ofrenda " + n;
+                    return L("- ofrenda ", "- offering ") + n;
                 }
                 return AddOfferingText(rest);
             }
@@ -1472,10 +1528,10 @@ Puerto=8765
             }
 
             t = Strip(t);
-            if (t.Length == 0) return "no entendí";
+            if (t.Length == 0) return L("no entendí", "didn't get that");
 
             var pool = remove ? Items().ToList() : perkOnly ? cat.Perks.ToList() : AddPool(killerOnly).ToList();
-            if (pool.Count == 0) return "no hay nada para quitar";
+            if (pool.Count == 0) return L("no hay nada para quitar", "nothing to remove");
 
             // una sola cosa vs varias separadas por "y"
             var whole = Best(t, pool);
@@ -1505,11 +1561,11 @@ Puerto=8765
                         if (kb != null) T("  killer por palabra: " + kb.E.Name + " " + F2(kb.S));
                         if (kb != null && kb.S >= 0.75 && (whole == null || kb.S > whole.S)) return AddOne(kb.E);
                     }
-                    if (whole == null || whole.S < 0.4) return "no entendí";
+                    if (whole == null || whole.S < 0.4) return L("no entendí", "didn't get that");
                     // no ofrecer "¿X?" (ni aprender con "sí") si la frase era un comando que no se entendió
                     if (!remove && !Regex.IsMatch(t, @"\b(apodo|alias|killers?|asesino|anota|ofrenda)\b")) { lastGuess = whole.E; lastFail = t; }
-                    else return "no entendí";
-                    return "no entendí (¿" + whole.E.Name + "?)" + (remove ? "" : " — decí \"sí\" si era eso");
+                    else return L("no entendí", "didn't get that");
+                    return L("no entendí (¿", "didn't get that (") + whole.E.Name + "?)" + (remove ? "" : L(" — decí \"sí\" si era eso", " — say \"yes\" if that's it"));
                 }
                 hits = new List<Hit> { whole };
             }
@@ -1559,7 +1615,7 @@ Puerto=8765
         string AddOfferingText(string text)
         {
             string n = Strip(Regex.Replace(text, @"^(de|del)\s+", ""));
-            if (n.Length == 0) return "¿qué ofrenda? (decí \"ofrenda\" y el nombre o lo que hace)";
+            if (n.Length == 0) return L("¿qué ofrenda? (decí \"ofrenda\" y el nombre o lo que hace)", "no offering name (say \"offering\" and its name or what it does)");
             // 1) el nombre (ingles o espanol, o apodo como "mori")
             var best = Best(n, cat.Offerings);
             if (best != null && best.S >= 0.75) return AddOne(best.E);
@@ -1567,7 +1623,7 @@ Puerto=8765
             List<Entry> ties;
             var e = MatchDesc(text, cat.Offerings, out ties);
             if (e != null) return AddOne(e);
-            string extra = ties.Count > 0 ? " (puede ser " + string.Join(" o ", ties.Take(3).Select(x => x.Name)) + ")" : " (no la reconocí)";
+            string extra = ties.Count > 0 ? L(" (puede ser ", " (could be ") + string.Join(L(" o ", " or "), ties.Take(3).Select(x => x.Name)) + ")" : L(" (no la reconocí)", " (didn't recognize it)");
             // 3) queda anotada tal cual la dijo
             return AddOne(OfferingNote(text)) + extra;
         }
@@ -1593,10 +1649,11 @@ Puerto=8765
         }
         static string ColorName(string rar)
         {
+            if (Lang.En) switch (rar) { case "visceral": return "red"; case "veryrare": return "purple"; case "rare": return "green"; case "uncommon": return "yellow"; default: return "brown"; }
             switch (rar) { case "visceral": return "rojo"; case "veryrare": return "violeta"; case "rare": return "verde"; case "uncommon": return "amarillo"; default: return "marrón"; }
         }
 
-        static string ColorPlural(string rar) { return rar == "common" ? "marrones" : ColorName(rar) + "s"; }
+        static string ColorPlural(string rar) { return Lang.En ? ColorName(rar) : rar == "common" ? "marrones" : ColorName(rar) + "s"; }
 
         // varios candidatos: se anota el primero como sospecha y se elige con "el dos"
         string OfferPick(List<Entry> cands, string why)
@@ -1605,7 +1662,7 @@ Puerto=8765
             Pick = cands; PickEntry = e; PickUntil = Environment.TickCount + 30000;
             Addons.Add(e);
             if (!Doubt.Contains(e)) Doubt.Add(e);
-            return "+ addon: " + e.Name + " (?) · " + (why.Length > 0 ? why + " " : "") + "¿cuál es? " + string.Join(" · ", cands.Select((x, i) => (i + 1) + " " + x.Name)) + " (decí \"el dos\"…)";
+            return "+ addon: " + e.Name + " (?) · " + (why.Length > 0 ? why + " " : "") + L("¿cuál es? ", "which one? ") + string.Join(" · ", cands.Select((x, i) => (i + 1) + " " + x.Name)) + L(" (decí \"el dos\"…)", " (say \"number two\"…)");
         }
 
         string AddAddonText(string text)
@@ -1622,9 +1679,9 @@ Puerto=8765
             }
             if (rar != null && Killer != null)
             {
-                if (Addons.Count >= 2) return "ya tiene 2 addons (decí \"quitar ...\" o \"quitar addons\")";
+                if (Addons.Count >= 2) return L("ya tiene 2 addons (decí \"quitar ...\" o \"quitar addons\")", "already has 2 add-ons (say \"remove ...\" or \"remove add-ons\")");
                 var byColor = KillerAddons().Where(a => a.Rarity == rar && !Addons.Contains(a)).ToList();
-                if (byColor.Count == 0) return "no hay addons " + ColorPlural(rar) + " de " + Killer.Name;
+                if (byColor.Count == 0) return Lang.En ? "there are no " + ColorName(rar) + " add-ons for " + Killer.Name : "no hay addons " + ColorPlural(rar) + " de " + Killer.Name;
                 Entry ce = null;
                 if (Txt.Tokens(text).Count > 0)
                 {
@@ -1636,13 +1693,13 @@ Puerto=8765
                     if (ce == null && cties.Count == 1) ce = cties[0];
                 }
                 if (ce == null && byColor.Count == 1) ce = byColor[0];
-                if (ce == null) return OfferPick(byColor.Take(5).ToList(), "hay " + byColor.Count + " " + ColorPlural(rar) + ":");
+                if (ce == null) return OfferPick(byColor.Take(5).ToList(), L("hay ", "") + byColor.Count + " " + ColorPlural(rar) + ":");
                 Addons.Add(ce);
                 if (doubtMode) Doubt.Add(ce);
                 return "+ addon: " + ce.Name + (doubtMode ? " (?)" : "");
             }
             string n = Strip(Txt.Norm(text));
-            if (n.Length == 0) return "no entendí qué hace el addon";
+            if (n.Length == 0) return L("no entendí qué hace el addon", "didn't get what the add-on does");
             var pool = KillerAddons();
             // 1) dijo el nombre real (en ingles o en espanol)
             var best = Best(n, pool);
@@ -1651,9 +1708,9 @@ Puerto=8765
             if (e == null)
             {
                 var bp = Best(n, cat.Perks);
-                if (bp != null && bp.S >= 0.8 && (best == null || bp.S > best.S)) return AddOne(bp.E) + " (era un perk)";
+                if (bp != null && bp.S >= 0.8 && (best == null || bp.S > best.S)) return AddOne(bp.E) + L(" (era un perk)", " (it was a perk)");
             }
-            if (Addons.Count >= 2) return "ya tiene 2 addons (decí \"quitar ...\" o \"quitar addons\")";
+            if (Addons.Count >= 2) return L("ya tiene 2 addons (decí \"quitar ...\" o \"quitar addons\")", "already has 2 add-ons (say \"remove ...\" or \"remove add-ons\")");
             string extra = "";
             // 2) con el killer anotado: buscar por lo que hace
             if (e == null && Killer != null)
@@ -1663,12 +1720,12 @@ Puerto=8765
                 ties = ties.Where(x => !Addons.Contains(x)).ToList();
                 if (e == null && ties.Count == 1) { e = ties[0]; doubtMode = true; }
                 else if (e == null && ties.Count > 1) return OfferPick(ties, ""); // dudoso: elegir con "el dos"
-                else if (e == null) extra = " (no lo reconocí entre los addons de " + Killer.Name + ")";
+                else if (e == null) extra = L(" (no lo reconocí entre los addons de ", " (not one of the add-ons of ") + Killer.Name + ")";
             }
-            else if (e == null) extra = " (decí el killer para reconocerlo)";
+            else if (e == null) extra = L(" (decí el killer para reconocerlo)", " (say the killer so I can recognize it)");
             // 3) si no, queda la descripcion tal cual
             if (e == null) e = Note(text);
-            if (Addons.Any(a => a.Name == e.Name)) return e.Name + " ya estaba";
+            if (Addons.Any(a => a.Name == e.Name)) return e.Name + L(" ya estaba", " was already there");
             Addons.Add(e);
             if (doubtMode) { Doubt.Add(e); extra = " (?)" + extra; }
             return "+ addon: " + e.Name + extra;
@@ -1681,7 +1738,7 @@ Puerto=8765
             var names = cat.Killers.Select(k => Regex.Replace(k.Name, "^The ", "")).ToList();
             names.Add("Pinhead"); names.Add("Myers"); names.Add("Freddy"); names.Add("Chucky"); names.Add("Wesker"); names.Add("Jason"); names.Add("Memento Mori");
             var nicks = aliasKeys.Values.SelectMany(l => l).Select(k => k.N).Distinct().Take(25);
-            return "Dead by Daylight. Tiene Pain Resonance, Grim Embrace y Deadlock. " + string.Join(", ", names) +
+            return L("Dead by Daylight. Tiene Pain Resonance, Grim Embrace y Deadlock. ", "Dead by Daylight. He has Pain Resonance, Grim Embrace and Deadlock. ") + string.Join(", ", names) +
                    (nicks.Any() ? ". " + string.Join(", ", nicks) : "") + ".";
         }
 
@@ -1817,7 +1874,7 @@ Puerto=8765
         public void Start(string device)
         {
             int id = WAVE_MAPPER;
-            DeviceName = "predeterminado de Windows";
+            DeviceName = Lang.L("predeterminado de Windows", "Windows default");
             if (!string.IsNullOrEmpty(device))
             {
                 var devs = Devices();
@@ -1827,7 +1884,7 @@ Puerto=8765
                     if (a.Length > 0 && (b.StartsWith(a, StringComparison.OrdinalIgnoreCase) || a.StartsWith(b, StringComparison.OrdinalIgnoreCase)))
                     { id = i; DeviceName = devs[i]; break; }
                 }
-                if (id == WAVE_MAPPER) LastError = "no encontré \"" + device + "\", uso el predeterminado";
+                if (id == WAVE_MAPPER) LastError = Lang.L("no encontré \"", "couldn't find \"") + device + Lang.L("\", uso el predeterminado", "\", using the default");
             }
             var fmt = new WAVEFORMATEX { wFormatTag = 1, nChannels = 1, nSamplesPerSec = 16000, nAvgBytesPerSec = 32000, nBlockAlign = 2, wBitsPerSample = 16, cbSize = 0 };
             ev = new AutoResetEvent(false);
@@ -1960,7 +2017,7 @@ Puerto=8765
                     using (var resp = req.GetResponse())
                     using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
                     {
-                        if (OnStatus != null) OnStatus("conectado");
+                        if (OnStatus != null) OnStatus(Lang.L("conectado", "connected"));
                         backoff = 1000;
                         string line;
                         while (!stop && (line = sr.ReadLine()) != null)
@@ -1982,7 +2039,7 @@ Puerto=8765
                 catch (Exception ex)
                 {
                     if (stop) break;
-                    if (OnStatus != null) OnStatus("sin conexión (" + ex.Message + "), reintento…");
+                    if (OnStatus != null) OnStatus(Lang.L("sin conexión (", "offline (") + ex.Message + Lang.L("), reintento…", "), retrying…"));
                     Thread.Sleep(backoff);
                     backoff = Math.Min(backoff * 2, 30000);
                 }
@@ -2040,7 +2097,7 @@ Puerto=8765
                     }
                     catch (Exception ex)
                     {
-                        if (OnStatus != null) OnStatus("no pude enviar (" + ex.Message + "), reintento…");
+                        if (OnStatus != null) OnStatus(Lang.L("no pude enviar (", "couldn't send (") + ex.Message + Lang.L("), reintento…", "), retrying…"));
                         Thread.Sleep(1500 * (i + 1));
                     }
                 }
@@ -2060,7 +2117,8 @@ Puerto=8765
         {
             s = Regex.Replace((s ?? "").Trim().ToLowerInvariant(), @"[^a-z0-9]", "");
             if (s.StartsWith("dbdov")) s = s.Substring(5);
-            if (s.StartsWith("sala") && s.Length >= 14) s = s.Substring(4); // "sala abcd2345ef" (como se pega en el chat)
+            if (s.StartsWith("sala") && s.Length >= 14) s = s.Substring(4);
+            if (s.StartsWith("room") && s.Length >= 14) s = s.Substring(4); // "sala abcd2345ef" (como se pega en el chat)
             return s;
         }
 
@@ -2124,13 +2182,13 @@ Puerto=8765
         static string Init()
         {
             string dll = FindDll();
-            if (dll == null) return "no encontré steam_api64.dll de Dead by Daylight";
+            if (dll == null) return Lang.L("no encontré steam_api64.dll de Dead by Daylight", "couldn't find Dead by Daylight's steam_api64.dll");
             SetDllDirectory(Path.GetDirectoryName(dll));
             Environment.SetEnvironmentVariable("SteamAppId", AppId.ToString());
             Environment.SetEnvironmentVariable("SteamGameId", AppId.ToString());
             var err = new byte[1024];
             int ir = SteamAPI_InitFlat(err);
-            return ir == 0 ? null : "Steam no respondió (" + ir + ": " + Encoding.UTF8.GetString(err).TrimEnd('\0') + ")";
+            return ir == 0 ? null : Lang.L("Steam no respondió (", "Steam didn't respond (") + ir + ": " + Encoding.UTF8.GetString(err).TrimEnd('\0') + ")";
         }
 
         // proceso vigia (hijo del overlay): mientras DBD este abierto, avisa por stdout mi lobby y que amigos estan en el mismo
@@ -2423,7 +2481,7 @@ Puerto=8765
                                 {
                                     st.Trace.Clear();
                                     res = st.Apply("creo que " + m.Value); // lo que escucha de otros entra como sospecha
-                                    if (!res.StartsWith("no ")) hits++;
+                                    if (!Lang.Fail(res)) hits++;
                                 }
                                 W((seg.Length / 16000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s, Whisper " + (int)ms + " ms: \"" + (text ?? "").Trim() + "\"" + (m.Success ? "  ->  " + res : ""));
                             }
@@ -2450,7 +2508,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 40;
+        public const int AppVersion = 41;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2480,7 +2538,7 @@ Puerto=8765
                 using (var rsa = new System.Security.Cryptography.RSACryptoServiceProvider())
                 {
                     rsa.FromXmlString(PublicKey);
-                    if (!rsa.VerifyData(man, "SHA256", Convert.FromBase64String(sig))) { error = "firma inválida (se ignora)"; return null; }
+                    if (!rsa.VerifyData(man, "SHA256", Convert.FromBase64String(sig))) { error = Lang.L("firma inválida (se ignora)", "invalid signature (ignored)"); return null; }
                 }
                 var d = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(Encoding.UTF8.GetString(man).TrimStart('﻿'));
                 int ver = Convert.ToInt32(d["version"]);
@@ -2491,7 +2549,7 @@ Puerto=8765
                 string got;
                 using (var sha = System.Security.Cryptography.SHA256.Create())
                     got = string.Concat(sha.ComputeHash(exe).Select(b => b.ToString("x2")));
-                if (got != want) { error = "el archivo bajado no coincide con la firma (se ignora)"; return null; }
+                if (got != want) { error = Lang.L("el archivo bajado no coincide con la firma (se ignora)", "the downloaded file doesn't match the signature (ignored)"); return null; }
                 // Windows deja renombrar el exe que esta corriendo: el viejo queda como .old y el nuevo toma su lugar
                 string me = Application.ExecutablePath, old = me + ".old";
                 try { if (File.Exists(old)) File.Delete(old); } catch { }
@@ -2499,7 +2557,7 @@ Puerto=8765
                 try { File.WriteAllBytes(me, exe); }
                 catch { File.Move(old, me); throw; }
                 object notes; d.TryGetValue("notes", out notes);
-                return "versión " + ver + ((notes ?? "").ToString().Length > 0 ? ": " + notes : "");
+                return Lang.L("versión ", "version ") + ver + ((notes ?? "").ToString().Length > 0 && !Lang.En ? ": " + notes : "");
             }
             catch (Exception ex) { error = ex.Message; return null; }
         }
@@ -2541,7 +2599,7 @@ Puerto=8765
             Action<string> W = str => { var b = Encoding.UTF8.GetBytes(str); body.Write(b, 0, b.Length); };
             Action<string, string> Field = (k, v) => W("--" + bnd + "\r\nContent-Disposition: form-data; name=\"" + k + "\"\r\n\r\n" + v + "\r\n");
             Field("response_format", "json");
-            Field("language", "es");
+            Field("language", Lang.En ? "en" : "es");
             Field("temperature", "0");
             Field("prompt", prompt);
             W("--" + bnd + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\n");
@@ -2567,6 +2625,9 @@ Puerto=8765
     // ------------------------------------------------------------ overlay
     class Overlay : Form
     {
+        public static string L(string es, string en) { return Lang.L(es, en); }
+        public const string AppName = "Callouts in the Fog";
+        static Overlay() { } // asi los textos fijos se arman recien al usar la clase (despues de elegir el idioma)
         [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
         [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
 
@@ -2606,7 +2667,7 @@ Puerto=8765
         public List<Entry> QuickPicks(out string title)
         {
             var k = st.Killer;
-            title = k != null ? "Lo más visto contra " + DName(k) : "Lo más visto últimamente";
+            title = k != null ? L("Lo más visto contra ", "Most seen against ") + DName(k) : L("Lo más visto últimamente", "Most seen lately");
             var score = new Dictionary<Entry, double>();
             try
             {
@@ -2636,7 +2697,7 @@ Puerto=8765
             if (k != null)
                 foreach (var own in cat.Perks.Where(x => x.Owner == k.Name).OrderBy(x => DName(x)))
                     if (!res.Contains(own) && !st.Perks.Contains(own)) res.Add(own);
-            if (score.Count == 0 && k != null) title = "Perks de " + DName(k);
+            if (score.Count == 0 && k != null) title = Lang.En ? DName(k) + " perks" : "Perks de " + DName(k);
             return res;
         }
 
@@ -2653,7 +2714,31 @@ Puerto=8765
             if (!Preview)
             {
                 string who = partyNames.Count > 0 ? ": " + string.Join(", ", partyNames.Values.Where(n => n.Length > 0).Distinct()) : "";
-                A((InGroup ? "👥 En grupo" + who : "Sin grupo") + " · " + RoomText(), InGroup ? Color.FromArgb(130, 200, 140) : note, false);
+                A((InGroup ? L("👥 En grupo", "👥 In a group") + who : L("Sin grupo", "No group")) + " · " + RoomText(), InGroup ? Color.FromArgb(130, 200, 140) : note, false);
+            }
+            if (Lang.En)
+            {
+                A("Type: " + TypeKeyText, head, true);
+                A("the name (or part of it) of a perk, add-on, offering, killer or map, then Enter", cmd, false);
+                A("\"noed?\" or Shift+Enter   adds it as a guess (?)", cmd, false);
+                A("\"addon 15 slow\" · \"perk aura hook\"   search by what it does", cmd, false);
+                A("\"remove …\" · \"change …\" · \"doubt …\" · \"room …\"", cmd, false);
+                if (voice)
+                {
+                    A("Hold " + KeyName + " and say:", head, true);
+                    A("\"he has Pain Resonance and Deadlock\"   adds perks (max. 4)", cmd, false);
+                    A("\"the killer is the Huntress\"   killer (helps with add-ons)", cmd, false);
+                    A("\"add-on that blinds\"   add-on by what it does (max. 2); if unsure: \"number two\" or \"none\"", cmd, false);
+                    A("\"remove Deadlock\" · \"undo\" · \"yes\" when it asks (…?)", cmd, false);
+                    A("\"offering Ebony Mori\" · \"I think he has Deadlock\" (guess) · \"confirmed\" · \"discarded\"", cmd, false);
+                }
+                A("Keys", head, true);
+                A(ClearKeyName + " (hold 1 s)   clear everything · tap again right after = undo", cmd, false);
+                A(HelpKeyName + " (hold)   this help", cmd, false);
+                if (!voice) A("Voice is not installed (optional): Settings → Voice", note, false);
+                A(RoomText() + (room != null ? " · everyone sees the same list" : ""), note, false);
+                A("Settings: double-click the hook icon next to the clock", note, false);
+                return l;
             }
             A("Mantené " + KeyName + " y decí:", head, true);
             A("\"tiene Pain Resonance y Deadlock\"   anota perks (máx. 4)", cmd, false);
@@ -2671,9 +2756,10 @@ Puerto=8765
             A("Teclas", head, true);
             A(ClearKeyName + " (mantener 1 s)   borrar todo · un toque después = deshacer", cmd, false);
             A(HelpKeyName + " (mantener)   esta ayuda", cmd, false);
-            if (!voice) A("Esta PC no tiene Whisper (solo ver): ícono → \"Instalar voz\"", Color.Orange, false);
+            A(TypeKeyText + "   escribir lo que viste (o \"addon 15 lento\", \"quitar …\", \"sala …\")", cmd, false);
+            if (!voice) A("Esta PC no tiene Whisper (solo ver): Configuración → Voz → \"Instalar Whisper\"", Color.Orange, false);
             A(RoomText() + (room != null ? " · todos ven lo mismo" : ""), note, false);
-            A("Más opciones: clic derecho en el ícono rojo \"D\" junto al reloj", note, false);
+            A("Configuración: doble clic en el ícono del gancho junto al reloj", note, false);
             return l;
         }
         string statusLine = "";
@@ -2721,7 +2807,7 @@ Puerto=8765
             px = Math.Max(160, Math.Min(900, px));
             SetCfg("TamanoMapa", px.ToString());
             if (mapShown != null) ShowMap(mapShown, false);
-            Feedback("tamaño del mapa: " + px + " px", Color.Silver, 3000);
+            Feedback(L("tamaño del mapa: ", "map size: ") + px + " px", Color.Silver, 3000);
         }
         // un paso mas grande / mas chico (desde el cuadro de escribir)
         public void StepMapSize(int dir)
@@ -2739,7 +2825,7 @@ Puerto=8765
             pc = Math.Max(15, Math.Min(100, pc));
             SetCfg("OpacidadMapa", pc.ToString());
             if (mapWin != null) mapWin.Opacity = pc / 100.0;
-            Feedback("opacidad del mapa: " + pc + " %", Color.Silver, 3000);
+            Feedback(L("opacidad del mapa: ", "map opacity: ") + pc + " %", Color.Silver, 3000);
         }
         public void StepMapOpacity(int dir)
         {
@@ -2792,7 +2878,7 @@ Puerto=8765
                 var r = new Rectangle(6, 6, side, Height - 12);
                 if (img != null) g.DrawImage(img, r);
                 else using (var fs = new Font("Segoe UI", 9f))
-                    TextRenderer.DrawText(g, ov.MapError != null ? "No pude bajar el plano de " + title + "\n(" + ov.MapError + ")" : "cargando " + title + "…", fs, r, Color.FromArgb(160, 160, 175), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+                    TextRenderer.DrawText(g, ov.MapError != null ? L("No pude bajar el plano de ", "Couldn't download the map of ") + title + "\n(" + ov.MapError + ")" : L("cargando ", "loading ") + title + "…", fs, r, Color.FromArgb(160, 160, 175), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
                 using (var pen = new Pen(Color.FromArgb(70, 70, 90))) g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
             }
         }
@@ -2928,10 +3014,11 @@ Puerto=8765
             ParseCombo(cfg.Get("TeclaNombres", "Shift+M"), out vkNames, out namesSh, out namesCt, out namesAl, out tn);
             ParseCombo(cfg.Get("TeclaAyuda", "Shift+H"), out vkHelp, out helpSh, out helpCt, out helpAl, out tn);
             showNames = Regex.IsMatch(cfg.Get("Nombres", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase);
+            Lang.Init(cfg.Get("IdiomaApp", "auto"));
             port = cfg.GetInt("Puerto", 8765);
 
             try { cat = Catalog.Load(Path.Combine(dir, "datos")); }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "DBD Overlay"); Environment.Exit(1); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, AppName); Environment.Exit(1); }
             st = new State(cat);
             st.AliasPath = Path.Combine(dir, "apodos.txt");
             st.ClearKeyName = cfg.Get("TeclaLimpiar", "Shift+G");
@@ -3025,7 +3112,7 @@ Puerto=8765
                 StartVoice();
                 if (voice && ListenOn) StartListen();
                 if (voice && HandsOn) StartHands();
-                Feedback(voice ? "voz encendida: cargando Whisper…" : "voz encendida, pero esta PC no tiene Whisper (instalalo desde el menú)", Color.FromArgb(150, 220, 150), 5000);
+                Feedback(voice ? L("voz encendida: cargando Whisper…", "voice on: loading Whisper…") : L("voz encendida, pero esta PC no tiene Whisper (instalalo desde Configuración → Voz)", "voice on, but Whisper is not installed (Settings → Voice)"), Color.FromArgb(150, 220, 150), 5000);
             }
             else
             {
@@ -3036,7 +3123,7 @@ Puerto=8765
                 StopWhisper();
                 voice = false; serverReady = false; statusLine = "";
                 DebugEvent("voz apagada: Whisper cerrado, micrófono liberado");
-                Feedback("voz apagada: Whisper cerrado y micrófono liberado (" + typeKeyName + " para escribir)", Color.Silver, 5000);
+                Feedback(L("voz apagada: Whisper cerrado y micrófono liberado (", "voice off: Whisper closed and microphone released (") + typeKeyName + L(" para escribir)", " to type)"), Color.Silver, 5000);
             }
             Relayout();
         }
@@ -3067,19 +3154,19 @@ Puerto=8765
                 mic = new Mic();
                 mic.Stopped = () => { try { BeginInvoke((Action)Kick); } catch { } };
                 mic.Start(cfg.Get("Microfono", ""));
-                if (mic.LastError.Length > 0) Feedback("Micrófono: " + mic.LastError, Color.Orange, 8000);
+                if (mic.LastError.Length > 0) Feedback(L("Micrófono: ", "Microphone: ") + mic.LastError, Color.Orange, 8000);
                 DebugEvent("micrófono: " + mic.DeviceName + (mic.LastError.Length > 0 ? " (" + mic.LastError + ")" : ""));
             }
             catch (Exception ex)
             {
-                Feedback("No pude abrir el micrófono: " + ex.Message, Color.OrangeRed, 15000);
+                Feedback(L("No pude abrir el micrófono: ", "Couldn't open the microphone: ") + ex.Message, Color.OrangeRed, 15000);
                 DebugEvent("micrófono: no se pudo abrir: " + ex.Message);
             }
         }
 
         void StartWhisper(string exe, string model)
         {
-            statusLine = "Cargando Whisper…";
+            statusLine = L("Cargando Whisper…", "Loading Whisper…");
             if (Whisper.Ping(port)) { serverReady = true; statusLine = ""; return; }
             try
             {
@@ -3091,7 +3178,7 @@ Puerto=8765
                 whisperProc = p;
                 DebugEvent("Whisper arrancando: " + exe + " · modelo " + Path.GetFileName(model) + " · " + threads + " hilos");
             }
-            catch (Exception ex) { statusLine = "Whisper no arrancó: " + ex.Message; return; }
+            catch (Exception ex) { statusLine = L("Whisper no arrancó: ", "Whisper didn't start: ") + ex.Message; return; }
             new Thread(() =>
             {
                 for (int i = 0; i < 180 && !Whisper.Ping(port); i++) Thread.Sleep(500);
@@ -3099,7 +3186,7 @@ Puerto=8765
                 BeginInvoke((Action)(() =>
                 {
                     serverReady = ok;
-                    statusLine = ok ? "" : "Whisper no responde";
+                    statusLine = ok ? "" : L("Whisper no responde", "Whisper is not responding");
                     DebugEvent(ok ? "Whisper listo" : "Whisper NO responde en el puerto " + port);
                     Relayout();
                 }));
@@ -3122,18 +3209,21 @@ Puerto=8765
         void InstallVoice()
         {
             if (installing) return;
-            if (voice) { MessageBox.Show("Esta PC ya tiene Whisper: la voz ya funciona (mantené " + KeyName + " y hablá).", "DBD Overlay"); return; }
+            if (voice) { MessageBox.Show(L("Esta PC ya tiene Whisper: la voz ya funciona (mantené ", "Whisper is already installed: voice works (hold ") + KeyName + L(" y hablá).", " and talk)."), AppName); return; }
             bool nv = HasNvidia();
             const string rel = "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/";
             string zipUrl = rel + (nv ? "whisper-bin-win-cuda-11.8.0-x64.zip" : "whisper-bin-x64.zip");
             string modelName = nv ? "ggml-large-v3-turbo-q5_0.bin" : "ggml-small-q5_1.bin";
             string modelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + modelName;
             string wdir = Path.Combine(dir, "whisper"), mdir = Path.Combine(wdir, "models");
-            string msg = (nv ? "Detecté una placa NVIDIA: voy a bajar Whisper con aceleración por GPU (rápido)."
-                             : "No detecté placa NVIDIA: voy a bajar Whisper para el procesador (tarda un poco más en entender).") +
-                         "\n\nDescarga: " + (nv ? "unos 860 MB" : "unos 200 MB") + " (desde GitHub y Hugging Face).\nSe guarda en " + wdir +
-                         "\n\n¿Seguir?";
-            if (MessageBox.Show(msg, "Instalar voz", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            string msg = Lang.En
+                ? (nv ? "NVIDIA graphics card found: I'll download Whisper with GPU acceleration (fast)."
+                      : "No NVIDIA graphics card found: I'll download Whisper for the CPU (a bit slower to understand).") +
+                  "\n\nDownload: " + (nv ? "about 860 MB" : "about 200 MB") + " (from GitHub and Hugging Face).\nSaved in " + wdir + "\n\nContinue?"
+                : (nv ? "Detecté una placa NVIDIA: voy a bajar Whisper con aceleración por GPU (rápido)."
+                      : "No detecté placa NVIDIA: voy a bajar Whisper para el procesador (tarda un poco más en entender).") +
+                  "\n\nDescarga: " + (nv ? "unos 860 MB" : "unos 200 MB") + " (desde GitHub y Hugging Face).\nSe guarda en " + wdir + "\n\n¿Seguir?";
+            if (MessageBox.Show(msg, L("Instalar voz", "Install voice"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             installing = true;
             DebugEvent("instalando voz (" + (nv ? "NVIDIA" : "procesador") + ")");
             new Thread(() =>
@@ -3144,7 +3234,7 @@ Puerto=8765
                     Directory.CreateDirectory(mdir);
                     string zip = Path.Combine(wdir, "descarga.zip");
                     Download(zipUrl, zip, "Whisper");
-                    Status("Descomprimiendo Whisper…");
+                    Status(L("Descomprimiendo Whisper…", "Unpacking Whisper…"));
                     using (var z = System.IO.Compression.ZipFile.OpenRead(zip))
                         foreach (var en in z.Entries)
                         {
@@ -3153,7 +3243,7 @@ Puerto=8765
                         }
                     File.Delete(zip);
                     string model = Path.Combine(mdir, modelName);
-                    if (!File.Exists(model)) Download(modelUrl, model, "modelo de voz");
+                    if (!File.Exists(model)) Download(modelUrl, model, L("modelo de voz", "voice model"));
                 }
                 catch (Exception ex) { err = ex.Message; }
                 BeginInvoke((Action)(() =>
@@ -3161,13 +3251,13 @@ Puerto=8765
                     installing = false; statusLine = "";
                     if (err != null)
                     {
-                        Feedback("No se pudo instalar Whisper: " + err, Color.OrangeRed, 15000);
+                        Feedback(L("No se pudo instalar Whisper: ", "Couldn't install Whisper: ") + err, Color.OrangeRed, 15000);
                         DebugEvent("instalar voz falló: " + err);
                         Relayout();
                         return;
                     }
                     DebugEvent("voz instalada");
-                    Feedback("¡Voz instalada! Mantené " + KeyName + " y hablá", Color.FromArgb(150, 220, 150), 8000);
+                    Feedback(L("¡Voz instalada! Mantené ", "Voice installed! Hold ") + KeyName + L(" y hablá", " and talk"), Color.FromArgb(150, 220, 150), 8000);
                     StartVoice();
                     Relayout();
                 }));
@@ -3195,7 +3285,7 @@ Puerto=8765
                     if (pct != lastPct)
                     {
                         lastPct = pct;
-                        Status("Descargando " + what + "… " + (len > 0 ? pct + "%" : pct + " MB"));
+                        Status(L("Descargando ", "Downloading ") + what + "… " + (len > 0 ? pct + "%" : pct + " MB"));
                     }
                 }
             }
@@ -3205,7 +3295,7 @@ Puerto=8765
 
         // ---- idioma de los nombres y de las descripciones (por separado). Por voz se entienden los dos siempre.
         bool NamesEs { get { return cfg.Get("IdiomaNombres", "en").ToLowerInvariant().StartsWith("es"); } }
-        bool DescEs { get { return !cfg.Get("IdiomaDescripciones", "es").ToLowerInvariant().StartsWith("en"); } }
+        bool DescEs { get { return !cfg.Get("IdiomaDescripciones", Lang.En ? "en" : "es").ToLowerInvariant().StartsWith("en"); } }
 
         // ---- nombre del killer arriba: se puede ocultar y cambiar de tamano
         bool KillerOn { get { return !Regex.IsMatch(cfg.Get("MostrarKiller", "si"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
@@ -3348,9 +3438,9 @@ Puerto=8765
             if (tip != null && tip.Visible && tip.Current == over) return;
             if (tip == null) tip = new HoverTip(new Font("Segoe UI", fItem.Size, FontStyle.Bold), fSmall, GetIcon);
             string title = DName(over);
-            string sub = over.K == Kind.Perk ? "Perk" + (!string.IsNullOrEmpty(over.Owner) ? " de " + over.Owner : " general")
-                       : over.K == Kind.Offering ? "Ofrenda" : "Addon" + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "");
-            if (st.IsDoubt(over)) sub += " · sospecha (sin confirmar)";
+            string sub = over.K == Kind.Perk ? (Lang.En ? (!string.IsNullOrEmpty(over.Owner) ? over.Owner + " perk" : "General perk") : "Perk" + (!string.IsNullOrEmpty(over.Owner) ? " de " + over.Owner : " general"))
+                       : over.K == Kind.Offering ? L("Ofrenda", "Offering") : L("Addon", "Add-on") + (over.Killer != null && over.Killer.Length > 0 ? " · " + over.Killer : "");
+            if (st.IsDoubt(over)) sub += L(" · sospecha (sin confirmar)", " · guess (not confirmed)");
             Color tc = over.K == Kind.Perk ? Color.WhiteSmoke : RarityColor(over.Rarity);
             var anchor = new Rectangle(Left + rr.X, Top + rr.Y, rr.Width, rr.Height);
             bool right = !cfg.Get("Posicion", "arriba-derecha").ToLowerInvariant().Contains("izq");
@@ -3543,10 +3633,10 @@ Puerto=8765
                 {
                     updating = false;
                     if (err != null) DebugEvent("actualización: " + err);
-                    if (manual && what == null) Feedback(err != null ? "No pude buscar la actualización (" + err + ")" : "Ya tenés la última versión (" + Updater.AppVersion + ")", err != null ? Color.FromArgb(240, 170, 80) : Color.FromArgb(150, 220, 150), 5000);
+                    if (manual && what == null) Feedback(err != null ? L("No pude buscar la actualización (", "Couldn't check for updates (") + err + ")" : L("Ya tenés la última versión (", "You have the latest version (") + Updater.AppVersion + ")", err != null ? Color.FromArgb(240, 170, 80) : Color.FromArgb(150, 220, 150), 5000);
                     if (what == null) return;
                     DebugEvent("actualización instalada (" + what + "): reinicio");
-                    Feedback("DBD Overlay actualizado a la " + what + " · reiniciando…", Color.FromArgb(150, 220, 150), 4000);
+                    Feedback(L("Callouts in the Fog actualizado a la ", "Callouts in the Fog updated to ") + what + L(" · reiniciando…", " · restarting…"), Color.FromArgb(150, 220, 150), 4000);
                     var t = new System.Windows.Forms.Timer { Interval = 1500 };
                     t.Tick += (s, e) =>
                     {
@@ -3572,7 +3662,7 @@ Puerto=8765
             SetCfg("EscucharDiscord", v ? "si" : "no");
             if (listenItem != null) listenItem.Checked = v;
             if (v) StartListen(); else StopListen();
-            Feedback(v ? "escuchando Discord: lo que digan con \"tiene…\" se anota como sospecha" : "ya no escucho Discord", Color.FromArgb(130, 190, 255), 5000);
+            Feedback(v ? L("escuchando Discord: lo que digan con \"tiene…\" se anota como sospecha", "listening to Discord: what they say with \"he has…\" is added as a guess") : L("ya no escucho Discord", "stopped listening to Discord"), Color.FromArgb(130, 190, 255), 5000);
         }
 
         void StopListen()
@@ -3585,7 +3675,7 @@ Puerto=8765
         void StartListen()
         {
             if (listening) return;
-            if (!voice) { Feedback("para escuchar Discord hace falta Whisper", Color.Orange, 5000); return; }
+            if (!voice) { Feedback(L("para escuchar Discord hace falta Whisper", "listening to Discord needs Whisper"), Color.Orange, 5000); return; }
             var lb = new Loopback();
             lb.Start();
             loop = lb; listening = true;
@@ -3593,7 +3683,7 @@ Puerto=8765
             new Thread(() =>
             {
                 Thread.Sleep(800);
-                if (lb.LastError.Length > 0) { BeginInvoke((Action)(() => { DebugEvent("discord: ERROR " + lb.LastError); Feedback("no pude escuchar el audio de la PC: " + lb.LastError, Color.OrangeRed, 8000); })); return; }
+                if (lb.LastError.Length > 0) { BeginInvoke((Action)(() => { DebugEvent("discord: ERROR " + lb.LastError); Feedback(L("no pude escuchar el audio de la PC: ", "couldn't capture the PC audio: ") + lb.LastError, Color.OrangeRed, 8000); })); return; }
                 RunVad(() => lb.Pos, lb.Get, 500, 0, () => listening && loop == lb, () => false, OnHeard);
             }) { IsBackground = true }.Start();
         }
@@ -3654,7 +3744,7 @@ Puerto=8765
             SetCfg("SinTecla", v ? "si" : "no");
             if (handsItem != null) handsItem.Checked = v;
             if (v) StartHands(); else StopHands();
-            Feedback(v ? "hablar sin tecla: decí \"tiene…\", \"creo que tiene…\", \"el killer es…\" (sí/no/quitar siguen con " + KeyName + ")" : "hablar sin tecla: apagado", Color.FromArgb(150, 220, 150), 6000);
+            Feedback(v ? L("hablar sin tecla: decí \"tiene…\", \"creo que tiene…\", \"el killer es…\" (sí/no/quitar siguen con ", "talk without a key: say \"he has…\", \"I think he has…\", \"the killer is…\" (yes/no/remove still use ") + KeyName + ")" : L("hablar sin tecla: apagado", "talk without a key: off"), Color.FromArgb(150, 220, 150), 6000);
         }
 
         void StopHands()
@@ -3667,7 +3757,7 @@ Puerto=8765
         void StartHands()
         {
             if (handsFree) return;
-            if (!voice) { Feedback("para hablar sin tecla hace falta Whisper", Color.Orange, 5000); return; }
+            if (!voice) { Feedback(L("para hablar sin tecla hace falta Whisper", "talking without a key needs Whisper"), Color.Orange, 5000); return; }
             handsFree = true;
             int gen = ++handsGen;
             DebugEvent("sin tecla: escuchando el micrófono");
@@ -3698,11 +3788,11 @@ Puerto=8765
 
         // accion -> (clave de config, valor por defecto, se puede dejar sin tecla)
         static readonly Tuple<string, string, string, bool>[] KeyActions = {
-            Tuple.Create("Hablar (mantener)", "Tecla", "Shift+V", false),
-            Tuple.Create("Escribir", "TeclaEscribir", "Shift+T", true),
-            Tuple.Create("Borrar lista (mantener 1 s)", "TeclaLimpiar", "Shift+G", true),
-            Tuple.Create("Ayuda (mantener)", "TeclaAyuda", "Shift+H", true),
-            Tuple.Create("Mostrar nombres", "TeclaNombres", "Shift+M", true),
+            Tuple.Create(L("Hablar (mantener)", "Talk (hold)"), "Tecla", "Shift+V", false),
+            Tuple.Create(L("Escribir", "Type"), "TeclaEscribir", "Shift+T", true),
+            Tuple.Create(L("Borrar lista (mantener 1 s)", "Clear list (hold 1 s)"), "TeclaLimpiar", "Shift+G", true),
+            Tuple.Create(L("Ayuda (mantener)", "Help (hold)"), "TeclaAyuda", "Shift+H", true),
+            Tuple.Create(L("Mostrar nombres", "Show names"), "TeclaNombres", "Shift+M", true),
         };
 
         void AskKey(Tuple<string, string, string, bool> act)
@@ -3714,10 +3804,10 @@ Puerto=8765
                 // que no choque con otra accion
                 foreach (var o in KeyActions)
                     if (o.Item2 != act.Item2 && combo.Length > 0 && string.Equals(cfg.Get(o.Item2, o.Item3), combo, StringComparison.OrdinalIgnoreCase))
-                    { Feedback(combo + " ya es la tecla de \"" + o.Item1 + "\"", Color.FromArgb(240, 170, 80), 5000); return; }
+                    { Feedback(combo + L(" ya es la tecla de \"", " is already the key for \"") + o.Item1 + "\"", Color.FromArgb(240, 170, 80), 5000); return; }
                 SetCfg(act.Item2, combo);
                 LoadKeys();
-                Feedback(act.Item1 + ": " + (combo.Length > 0 ? combo : "sin tecla"), Color.FromArgb(150, 220, 150), 4000);
+                Feedback(act.Item1 + ": " + (combo.Length > 0 ? combo : L("sin tecla", "no key")), Color.FromArgb(150, 220, 150), 4000);
                 Relayout();
             };
             keyCapture.Show();
@@ -3735,13 +3825,13 @@ Puerto=8765
             public KeyCapture(string action, string current, bool canBeNone)
             {
                 allowNone = canBeNone;
-                FormBorderStyle = FormBorderStyle.FixedToolWindow; Text = "Tecla: " + action; StartPosition = FormStartPosition.CenterScreen;
+                FormBorderStyle = FormBorderStyle.FixedToolWindow; Text = L("Tecla: ", "Key: ") + action; StartPosition = FormStartPosition.CenterScreen;
                 TopMost = true; ShowInTaskbar = false; KeyPreview = true; Width = 440; Height = 170;
                 BackColor = Color.FromArgb(18, 18, 24);
                 lbl = new Label { Dock = DockStyle.Top, Height = 70, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.White, Font = new Font("Segoe UI", 16f, FontStyle.Bold),
-                                  Text = current.Length > 0 ? current : "(sin tecla)" };
+                                  Text = current.Length > 0 ? current : L("(sin tecla)", "(no key)") };
                 sub = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.TopCenter, ForeColor = Color.FromArgb(150, 150, 165), Font = new Font("Segoe UI", 9f),
-                                  Text = "Apretá la combinación nueva (por ejemplo Shift+V o un botón lateral del mouse).\nEsc: cancelar" + (canBeNone ? " · Supr: sin tecla" : "") };
+                                  Text = L("Apretá la combinación nueva (por ejemplo Shift+V o un botón lateral del mouse).\nEsc: cancelar", "Press the new combination (for example Shift+V or a side mouse button).\nEsc: cancel") + (canBeNone ? L(" · Supr: sin tecla", " · Del: no key") : "") };
                 Controls.Add(sub); Controls.Add(lbl);
                 KeyUp += OnUp;
                 MouseDown += OnMouse; lbl.MouseDown += OnMouse; sub.MouseDown += OnMouse;
@@ -3928,7 +4018,7 @@ Puerto=8765
             StopKeyHook();
             if (typeBox == null) return;
             if (typeBox.Visible) DebugEvent("escribir: cerrado" + (why != null ? " (" + why + ")" : ""));
-            if (feedback.StartsWith("⌨ escribiendo")) { feedback = ""; Relayout(); }
+            if (feedback.StartsWith("⌨ escribiendo") || feedback.StartsWith("⌨ typing")) { feedback = ""; Relayout(); }
             bool hadFocus = GetForegroundWindow() == typeBox.Handle;
             typeBox.Hide();
             Kick(); HoverTick();
@@ -3941,7 +4031,7 @@ Puerto=8765
         {
             if (typeBox == null || typeBox.IsDisposed) typeBox = new TypeBox(this);
             // primero el aviso (ensancha la lista) y despues el cuadro al costado
-            Feedback("⌨ escribiendo… las teclas van al cuadro · Esc para cerrar", Color.FromArgb(240, 200, 110), int.MaxValue / 2);
+            Feedback(L("⌨ escribiendo… las teclas van al cuadro · Esc para cerrar", "⌨ typing… keys go to the box · Esc to close"), Color.FromArgb(240, 200, 110), int.MaxValue / 2);
             PlaceTypeBox();
             // el juego (o la ventana que este al frente) se queda con el foco: las teclas las toma el gancho
             var prevFg = GetForegroundWindow();
@@ -3977,11 +4067,11 @@ Puerto=8765
             {
                 string mr = mm.Groups[1].Value.Trim();
                 var ml = new List<Entry>();
-                if (mapShown != null && (mr.Length == 0 || Kw(mr, "ocultar", "sacar", "cerrar", "quitar", "hide"))) ml.Add(new Entry { K = Kind.Offering, Name = "Ocultar mapa", Action = "mapa-ocultar", ActionTag = mapShown });
-                if (mapShown != null && (mr.Length == 0 || Kw(mr, "grande", "agrandar", "mas", "zoom", "tamano"))) ml.Add(new Entry { K = Kind.Offering, Name = "Mapa más grande", Action = "mapa-mas", ActionTag = MapSize + " px" });
-                if (mapShown != null && (mr.Length == 0 || Kw(mr, "chico", "achicar", "menos", "pequeno", "tamano"))) ml.Add(new Entry { K = Kind.Offering, Name = "Mapa más chico", Action = "mapa-menos", ActionTag = MapSize + " px" });
-                if (mapShown != null && (mr.Length == 0 || Kw(mr, "transparente", "opacidad", "clarito", "invisible"))) ml.Add(new Entry { K = Kind.Offering, Name = "Mapa más transparente", Action = "mapa-transp", ActionTag = MapOpacity + " %" });
-                if (mapShown != null && (mr.Length == 0 || Kw(mr, "opaco", "solido", "opacidad", "visible"))) ml.Add(new Entry { K = Kind.Offering, Name = "Mapa más opaco", Action = "mapa-opaco", ActionTag = MapOpacity + " %" });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "ocultar", "sacar", "cerrar", "quitar", "hide", "close", "off"))) ml.Add(new Entry { K = Kind.Offering, Name = L("Ocultar mapa", "Hide map"), Action = "mapa-ocultar", ActionTag = mapShown });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "grande", "agrandar", "mas", "zoom", "tamano", "bigger", "big", "size"))) ml.Add(new Entry { K = Kind.Offering, Name = L("Mapa más grande", "Bigger map"), Action = "mapa-mas", ActionTag = MapSize + " px" });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "chico", "achicar", "menos", "pequeno", "tamano", "smaller", "small", "size"))) ml.Add(new Entry { K = Kind.Offering, Name = L("Mapa más chico", "Smaller map"), Action = "mapa-menos", ActionTag = MapSize + " px" });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "transparente", "opacidad", "clarito", "invisible", "transparent", "opacity"))) ml.Add(new Entry { K = Kind.Offering, Name = L("Mapa más transparente", "More transparent map"), Action = "mapa-transp", ActionTag = MapOpacity + " %" });
+                if (mapShown != null && (mr.Length == 0 || Kw(mr, "opaco", "solido", "opacidad", "visible", "opaque", "solid", "opacity"))) ml.Add(new Entry { K = Kind.Offering, Name = L("Mapa más opaco", "More opaque map"), Action = "mapa-opaco", ActionTag = MapOpacity + " %" });
                 ml.AddRange(cat.Maps.Where(m => mr.Length == 0 || m.Keys.Any(k => k.N.Contains(mr)) || Txt.Norm(m.ActionTag ?? "").Contains(mr)).OrderBy(m => m.Name));
                 return ml;
             }
@@ -4005,15 +4095,15 @@ Puerto=8765
             if (sm.Success && !Regex.IsMatch(sm.Groups[1].Value, @"^(nueva|crear|crea|new|salir|dejar|leave)$")) code = Room.CleanCode(sm.Groups[1].Value);
             if (code.Length >= 6)
             {
-                l.Add(new Entry { K = Kind.Offering, Name = "Entrar a la sala " + code, Action = "entrar:" + code, ActionTag = ManualRoom ? "sale de la actual" : "" });
+                l.Add(new Entry { K = Kind.Offering, Name = L("Entrar a la sala ", "Join room ") + code, Action = "entrar:" + code, ActionTag = ManualRoom ? L("sale de la actual", "leaves the current one") : "" });
                 return l;
             }
             bool wantExit = Kw(n, "salir", "exit", "leave", "dejar", "irme"), wantNew = Kw(n, "nueva", "crear", "new");
             bool anyRoom = Kw(n, "sala", "room");
             bool salir = ManualRoom && (wantExit || (anyRoom && !wantNew));
             bool nueva = wantNew || (anyRoom && !wantExit);
-            if (salir) l.Add(new Entry { K = Kind.Offering, Name = "Salir de la sala " + cfg.Get("Sala", ""), Action = "salir", ActionTag = RoomCount > 0 ? RoomCount + "/" + MaxRoom + " adentro" : "" });
-            if (nueva) l.Add(new Entry { K = Kind.Offering, Name = "Crear sala nueva", Action = "nueva", ActionTag = "copia el código para el chat" });
+            if (salir) l.Add(new Entry { K = Kind.Offering, Name = L("Salir de la sala ", "Leave room ") + cfg.Get("Sala", ""), Action = "salir", ActionTag = RoomCount > 0 ? RoomCount + "/" + MaxRoom + L(" adentro", " inside") : "" });
+            if (nueva) l.Add(new Entry { K = Kind.Offering, Name = L("Crear sala nueva", "Create new room"), Action = "nueva", ActionTag = L("copia el código para el chat", "copies the code for the chat") });
             return l;
         }
         public void DoAction(string a)
@@ -4100,6 +4190,11 @@ Puerto=8765
             { "obstaculizado", new[] { "obstaculiz", "hinder" } },
             { "rapido", new[] { "velocidad", "speed", "rapid", "acelera", "increases movement" } },
             { "velocidad", new[] { "velocidad", "speed" } },
+            { "fast", new[] { "speed", "haste", "faster", "increases movement", "velocidad" } },
+            { "quick", new[] { "speed", "haste", "faster", "velocidad" } },
+            { "bleed", new[] { "haemorrhag", "hemorrhag", "bleed", "hemorrag" } },
+            { "hurt", new[] { "injur", "mangled", "deep wound", "herid" } },
+            { "faster", new[] { "speed", "haste", "faster" } },
             { "ciego", new[] { "ceguera", "ciego", "blind" } },
             { "agotado", new[] { "agotamiento", "exhaust" } },
             { "herido", new[] { "destroz", "mangled", "herid", "injur" } },
@@ -4171,17 +4266,18 @@ Puerto=8765
             switch (e.K)
             {
                 case Kind.Killer: return "";
-                case Kind.Perk: return !string.IsNullOrEmpty(e.Owner) ? "de " + e.Owner : "general";
+                case Kind.Perk: return !string.IsNullOrEmpty(e.Owner) ? L("de ", "") + e.Owner : L("general", "general");
                 case Kind.Offering: return "";
                 default: return (e.Killer ?? "") + (e.Rarity != null && ColorNameOf(e.Rarity).Length > 0 ? " · " + ColorNameOf(e.Rarity) : "");
             }
         }
         static string ColorNameOf(string rar)
         {
+            if (Lang.En) switch (rar) { case "visceral": return "red"; case "veryrare": return "purple"; case "rare": return "green"; case "uncommon": return "yellow"; case "common": return "brown"; default: return ""; }
             switch (rar) { case "visceral": return "rojo"; case "veryrare": return "violeta"; case "rare": return "verde"; case "uncommon": return "amarillo"; case "common": return "marrón"; default: return ""; }
         }
 
-        static readonly Regex TypedCmdRx = new Regex(@"^(?:tiene|tenia|quitar?|sacar?|borrar?|creo|probablemente|capaz|el killer|killer|ofrenda|no tiene|confirmad|descartad|el (?:uno|dos|tres|cuatro|cinco|[1-5]))\b");
+        static readonly Regex TypedCmdRx = new Regex(@"^(?:tiene|tenia|quitar?|sacar?|borrar?|creo|probablemente|capaz|el killer|killer|ofrenda|no tiene|confirmad|descartad|el (?:uno|dos|tres|cuatro|cinco|[1-5])|has|have|got|remove|delete|i think|maybe|probably|the killer|offering|confirm|confirmed|discard|discarded|undo|none|the (?:one|two|three|four|five|first|second|third)|number)\b");
 
         // Enter: anota la sugerencia elegida (o, si es un comando, lo aplica como si lo hubiera dicho)
         public void SubmitTyped(string text, Entry picked, bool doubt, bool byArrows)
@@ -4202,20 +4298,20 @@ Puerto=8765
             string said = picked != null && (!isCmd || byArrows) ? picked.Name : text;
             Heard("texto", said, what, false);
             Log("[texto] " + said, what);
-            bool ok = !what.StartsWith("no ");
+            bool ok = !Lang.Fail(what);
             if (ok) { st.Save(Path.Combine(dir, "estado.txt")); PublishDiff(before); }
             Feedback("⌨ " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), 5000);
             Relayout();
         }
 
         // ---- quitar / cambiar / duda desde el cuadro
-        static readonly Regex BoxModeRx = new Regex(@"^(quitar?|sacar?|borrar?|cambiar?|reemplazar?|duda|dudo|sospecha|seguro|confirmar?)\b\s*(.*)$");
+        static readonly Regex BoxModeRx = new Regex(@"^(quitar?|sacar?|borrar?|cambiar?|reemplazar?|duda|dudo|sospecha|seguro|confirmar?|remove|delete|change|replace|swap|doubt|guess|sure|confirm)\b\s*(.*)$");
         public string BoxMode(string text)
         {
             var m = BoxModeRx.Match(Txt.Norm(text ?? ""));
             if (!m.Success) return "";
             string w = m.Groups[1].Value;
-            return w.StartsWith("camb") || w.StartsWith("reemp") ? "cambiar" : w.StartsWith("dud") || w == "sospecha" || w == "seguro" || w.StartsWith("confirm") ? "duda" : "quitar";
+            return w.StartsWith("camb") || w.StartsWith("reemp") || w == "change" || w == "replace" || w == "swap" ? "cambiar" : w.StartsWith("dud") || w == "sospecha" || w == "seguro" || w.StartsWith("confirm") || w == "doubt" || w == "guess" || w == "sure" ? "duda" : "quitar";
         }
 
         // lo anotado (o solo de un tipo), filtrado por lo que se escribio
@@ -4234,7 +4330,7 @@ Puerto=8765
             string what = act();
             Heard("texto", said, what, false);
             Log("[texto] " + said, what);
-            bool ok = !what.StartsWith("no ");
+            bool ok = !Lang.Fail(what);
             if (ok) { st.Save(Path.Combine(dir, "estado.txt")); PublishDiff(before); }
             Feedback("⌨ " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), 5000);
             Relayout();
@@ -4289,8 +4385,8 @@ Puerto=8765
                 if (ctrl) return;
                 foreach (char c in text) if (!char.IsControl(c)) SetText(tb.Text + c);
             }
-            string HintText { get { return "Enter: anotar · \"noed?\" o Shift+Enter: sospecha · ↑↓ elegir · Esc: cerrar" + (ov.HelpKeyName.Length > 0 ? " · " + ov.HelpKeyName + ": ayuda" : "") + "\n" + HintRest; } }
-            const string HintRest = "\"addon\" · \"addon 15 lento\" · \"perk aura gancho\" · \"sala\" · \"quitar …\" · \"cambiar …\" · \"duda …\"";
+            string HintText { get { return L("Enter: anotar · \"noed?\" o Shift+Enter: sospecha · ↑↓ elegir · Esc: cerrar", "Enter: add · \"noed?\" or Shift+Enter: guess · ↑↓ choose · Esc: close") + (ov.HelpKeyName.Length > 0 ? " · " + ov.HelpKeyName + L(": ayuda", ": help") : "") + "\n" + HintRest; } }
+            static string HintRest { get { return L("\"addon\" · \"addon 15 lento\" · \"perk aura gancho\" · \"sala\" · \"quitar …\" · \"cambiar …\" · \"duda …\"", "\"addon\" · \"addon 15 slow\" · \"perk aura hook\" · \"room\" · \"remove …\" · \"change …\" · \"doubt …\""); } }
             public void FocusText() { tb.Focus(); }
             public void SetText(string s) { tb.Text = s; tb.SelectionStart = s.Length; }
 
@@ -4300,13 +4396,13 @@ Puerto=8765
                 if (replaceNew != null)
                 {
                     sugg = ov.CurrentMatching(tb.Text, replaceNew.K);
-                    why = "Ya está lleno: ¿cuál sacás para poner " + replaceNew.Name + "?  (Enter: ese · Esc: nada)";
+                    why = L("Ya está lleno: ¿cuál sacás para poner ", "It's full: which one goes out for ") + replaceNew.Name + L("?  (Enter: ese · Esc: nada)", "?  (Enter: that one · Esc: none)");
                 }
                 else if (replaceTarget != null)
                 {
                     var rt = replaceTarget;
                     sugg = Txt.Norm(tb.Text).Length == 0 ? new List<Entry>() : ov.Suggest(tb.Text).Where(x => x.K == rt.K && x != rt && x.Action == null).ToList();
-                    why = "Cambiar " + rt.Name + " por…  (escribí el nuevo · Shift+Enter: como sospecha)";
+                    why = L("Cambiar ", "Change ") + rt.Name + L(" por…  (escribí el nuevo · Shift+Enter: como sospecha)", " to…  (type the new one · Shift+Enter: as a guess)");
                 }
                 else if (ov.BoxRoomHint(tb.Text) != null)
                 {
@@ -4317,16 +4413,16 @@ Puerto=8765
                 {
                     string qt;
                     sugg = ov.QuickPicks(out qt);
-                    if (sugg.Count > 0) why = qt + " · ↓ y Enter para anotar (o escribí)";
+                    if (sugg.Count > 0) why = qt + L(" · ↓ y Enter para anotar (o escribí)", " · ↓ and Enter to add (or type)");
                 }
                 else
                 {
                     sugg = ov.Suggest(tb.Text);
                     string mode = ov.BoxMode(tb.Text);
-                    if (mode == "quitar") why = "Quitar: elegí cuál (Enter)";
-                    else if (mode == "cambiar") why = "Cambiar: elegí cuál sale (Enter) y después escribí el nuevo";
-                    else if (mode == "duda") why = "Duda: Enter alterna entre seguro y sospecha (?)";
-                    if (mode.Length > 0 && sugg.Count == 0) why = "No hay nada anotado que coincida";
+                    if (mode == "quitar") why = L("Quitar: elegí cuál (Enter)", "Remove: choose which one (Enter)");
+                    else if (mode == "cambiar") why = L("Cambiar: elegí cuál sale (Enter) y después escribí el nuevo", "Change: choose which one goes out (Enter), then type the new one");
+                    else if (mode == "duda") why = L("Duda: Enter alterna entre seguro y sospecha (?)", "Doubt: Enter toggles between sure and guess (?)");
+                    if (mode.Length > 0 && sugg.Count == 0) why = L("No hay nada anotado que coincida", "Nothing on the list matches");
                 }
                 confirmKiller = null;
                 lb.Items.Clear();
@@ -4336,7 +4432,7 @@ Puerto=8765
                 lb.Height = Math.Min(sugg.Count, 10) * lb.ItemHeight; // con mas de 10 aparece la barra para bajar
                 if (sugg.Count > 0) lb.TopIndex = 0;
                 bool noKiller = Regex.IsMatch(Txt.Norm(tb.Text), @"^(?:addons?|add ons?|adon|accesorios?)$") && !ov.HasKiller;
-                hint.Text = noKiller ? "Sin killer anotado: escribí algo de la descripción (\"addon 15 lento\") o anotá el killer primero." : why != null ? why + "\n" + HintText.Split('\n')[0] : HintText;
+                hint.Text = noKiller ? L("Sin killer anotado: escribí algo de la descripción (\"addon 15 lento\") o anotá el killer primero.", "No killer on the list: type something from the description (\"addon 15 slow\") or add the killer first.") : why != null ? why + "\n" + HintText.Split('\n')[0] : HintText;
                 hint.ForeColor = noKiller || (why != null && Txt.Norm(tb.Text).Length > 0) ? Color.FromArgb(240, 170, 80) : why != null ? Color.FromArgb(150, 200, 160) : Color.FromArgb(140, 140, 155);
                 Height = Padding.Vertical + tb.Height + lb.Height + hint.Height + 4;
             }
@@ -4386,7 +4482,7 @@ Puerto=8765
                     x += TextRenderer.MeasureText(name, f0).Width;
                 }
                 using (var f = new Font("Segoe UI", 8.5f))
-                    TextRenderer.DrawText(e.Graphics, ov.SuggestTag(en) + (ov.IsDoubt(en) ? "  · sospecha (?)" : ""), f, new Point(x + 10, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(e.Graphics, ov.SuggestTag(en) + (ov.IsDoubt(en) ? L("  · sospecha (?)", "  · guess (?)") : ""), f, new Point(x + 10, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
             }
             static readonly Font PillFont = new Font("Segoe UI", 7f, FontStyle.Bold);
             const int PillW = 58;
@@ -4452,7 +4548,7 @@ Puerto=8765
                 if (picked != null && picked.K == Kind.Killer && cur != null && cur != picked)
                 {
                     confirmKiller = picked;
-                    hint.Text = "¿Cambiar " + cur.Name + " por " + picked.Name + "? Se borran los addons.\nEnter: sí, cambiar · Esc: no";
+                    hint.Text = L("¿Cambiar ", "Change ") + cur.Name + L(" por ", " to ") + picked.Name + L("? Se borran los addons.\nEnter: sí, cambiar · Esc: no", "? This clears the add-ons.\nEnter: yes, change · Esc: no");
                     hint.ForeColor = Color.FromArgb(240, 170, 80);
                     return;
                 }
@@ -4510,7 +4606,7 @@ Puerto=8765
             sb.Append("resultado: " + what + "\r\ndespues: " + st.Describe());
             Debug(sb.ToString());
             Log("[sin tecla] " + raw, what);
-            if (what.StartsWith("no ") || what.Contains("ya estaba")) { Heard("sin tecla", raw, what, false); return; } // sin anotar: solo se ve si "mostrar lo que entiende" esta prendido
+            if (Lang.Fail(what) || Lang.Already(what)) { Heard("sin tecla", raw, what, false); return; } // sin anotar: solo se ve si "mostrar lo que entiende" esta prendido
             st.Save(Path.Combine(dir, "estado.txt"));
             PublishDiff(before);
             Feedback("🎙 “" + raw + "” → " + what, Color.FromArgb(150, 220, 150), 6000);
@@ -4533,7 +4629,7 @@ Puerto=8765
             sb.Append("resultado: " + what + "\r\ndespues: " + st.Describe());
             Debug(sb.ToString());
             Log("[discord] " + text, what);
-            if (what.StartsWith("no ") || what.Contains("ya estaba")) return; // no molestar con lo que no sirvio
+            if (Lang.Fail(what) || Lang.Already(what)) return; // no molestar con lo que no sirvio
             st.Save(Path.Combine(dir, "estado.txt"));
             PublishDiff(before);
             Feedback("Discord: " + what, Color.FromArgb(130, 190, 255), 6000);
@@ -4651,9 +4747,9 @@ Puerto=8765
                 var joined = nowNames.Where(n => !oldNames.Contains(n)).ToList();
                 var left = oldNames.Where(n => !nowNames.Contains(n)).ToList();
                 if (joined.Count > 0 || left.Count > 0)
-                    Feedback((joined.Count > 0 ? "👥 " + string.Join(", ", joined) + " en el grupo" : "") +
-                             (left.Count > 0 ? (joined.Count > 0 ? " · " : "👥 ") + string.Join(", ", left) + " salió" : "") +
-                             (partyCount == 0 ? " · solo vos" : ""), Color.FromArgb(130, 200, 140), 5000);
+                    Feedback((joined.Count > 0 ? "👥 " + string.Join(", ", joined) + L(" en el grupo", " joined the group") : "") +
+                             (left.Count > 0 ? (joined.Count > 0 ? " · " : "👥 ") + string.Join(", ", left) + L(" salió", " left") : "") +
+                             (partyCount == 0 ? L(" · solo vos", " · just you") : ""), Color.FromArgb(130, 200, 140), 5000);
             }
             DebugEvent("steam: lobby " + (lobby.Length > 0 ? Sha(lobby).Substring(0, 8) : "(ninguno)") + " · amigos en el grupo: " + partyCount);
             if (changed) StartRoom(); else UpdateRoomMenu();
@@ -4697,7 +4793,7 @@ Puerto=8765
             object o; string n;
             if (op.TryGetValue("name", out o) && (n = (o ?? "").ToString()).Length > 0) return n;
             if (op.TryGetValue("h", out o) && partyNames.TryGetValue((o ?? "").ToString(), out n) && n.Length > 0) return n;
-            return "alguien del grupo";
+            return L("alguien del grupo", "someone in the group");
         }
 
         // ---- maximo 4 por sala con codigo: cada PC tiene un id al azar; todos ven los avisos de entrada/salida
@@ -4745,14 +4841,14 @@ Puerto=8765
                 {
                     DebugEvent("sala: llena (" + MaxRoom + "/" + MaxRoom + "), salgo");
                     LeaveRoom();
-                    Feedback("La sala está llena (" + MaxRoom + "/" + MaxRoom + "): no pudiste entrar", Color.FromArgb(240, 170, 80), 8000);
+                    Feedback(L("La sala está llena (", "The room is full (") + MaxRoom + "/" + MaxRoom + L("): no pudiste entrar", "): you couldn't join"), Color.FromArgb(240, 170, 80), 8000);
                     return true;
                 }
-                if (!me && recent && pos < MaxRoom) Feedback(nm + " entró a la sala (" + RoomCount + "/" + MaxRoom + ")", Color.FromArgb(130, 190, 255), 5000);
+                if (!me && recent && pos < MaxRoom) Feedback(nm + L(" entró a la sala (", " joined the room (") + RoomCount + "/" + MaxRoom + ")", Color.FromArgb(130, 190, 255), 5000);
             }
             else if (leave && roomMembers.Remove(who))
             {
-                if (!me && recent) Feedback(nm + " salió de la sala (" + RoomCount + "/" + MaxRoom + ")", Color.Silver, 5000);
+                if (!me && recent) Feedback(nm + L(" salió de la sala (", " left the room (") + RoomCount + "/" + MaxRoom + ")", Color.Silver, 5000);
             }
             Relayout();
             return true;
@@ -4790,7 +4886,7 @@ Puerto=8765
                 if (!mine && op.TryGetValue("t", out rt0) && UnixNow() - Convert.ToInt64(rt0) < 600)
                 {
                     string mn = (mp ?? "").ToString();
-                    if (mn.Length == 0) HideMap(false); else { ShowMap(mn, false); Feedback(SenderName(op) + ": mapa " + mn, Color.FromArgb(130, 190, 255), 5000); }
+                    if (mn.Length == 0) HideMap(false); else { ShowMap(mn, false); Feedback(SenderName(op) + L(": mapa ", ": map ") + mn, Color.FromArgb(130, 190, 255), 5000); }
                 }
                 return;
             }
@@ -4852,7 +4948,7 @@ Puerto=8765
                 st.LastChange = lc;
                 st.Save(Path.Combine(dir, "estado.txt"));
                 DebugEvent("sala: me quedo con la lista de " + SenderName(op) + " (más nueva)" + (what.Length > 0 ? ": " + what : ""));
-                Feedback("lista igualada con " + SenderName(op), Color.FromArgb(130, 190, 255), 4000);
+                Feedback(L("lista igualada con ", "list synced with ") + SenderName(op), Color.FromArgb(130, 190, 255), 4000);
             }
             else if (lc < st.LastChange && op.ContainsKey("hello") && UnixNow() - t < 120)
             {
@@ -4875,8 +4971,9 @@ Puerto=8765
         bool AskName()
         {
             string n = Microsoft.VisualBasic.Interaction.InputBox(
-                "¿Con qué nombre te ven los demás cuando anotás algo?\n\n(En la sala automática de Steam, si lo dejás vacío tus amigos ven tu nombre de Steam, sin que se mande por internet.)",
-                "Sala compartida", MyName).Trim();
+                L("¿Con qué nombre te ven los demás cuando anotás algo?\n\n(En la sala automática de Steam, si lo dejás vacío tus amigos ven tu nombre de Steam, sin que se mande por internet.)",
+                  "What name do the others see when you add something?\n\n(In the automatic Steam room, if you leave it empty your friends see your Steam name, without it being sent over the internet.)"),
+                L("Sala compartida", "Shared room"), MyName).Trim();
             if (n.Length == 0) return MyName.Length > 0;
             SetCfg("Nombre", n.Length > 20 ? n.Substring(0, 20) : n);
             return true;
@@ -4891,19 +4988,23 @@ Puerto=8765
             StopSteam();
             StartRoom();
             PublishAll();
-            try { Clipboard.SetText("sala " + code); } catch { }
-            MessageBox.Show("Sala creada. Código: " + code + "\n\n(ya está copiado como \"sala " + code + "\": pegalo en el chat)\n\n" +
-                            "Los demás: Shift+T y escriben \"sala " + code + "\" (o clic derecho en el ícono \"D\" → Sala compartida → Unirse con código…).\n\n" +
-                            "Mientras uses código, la sala automática de Steam queda en pausa.",
-                            "Sala compartida", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            try { Clipboard.SetText(L("sala ", "room ") + code); } catch { }
+            MessageBox.Show(Lang.En
+                ? "Room created. Code: " + code + "\n\n(already copied as \"room " + code + "\": paste it in the chat)\n\n" +
+                  "The others: " + TypeKeyText + " and type \"room " + code + "\" (or Settings → Room → Join…).\n\n" +
+                  "While you use a code, the automatic Steam room is paused."
+                : "Sala creada. Código: " + code + "\n\n(ya está copiado como \"sala " + code + "\": pegalo en el chat)\n\n" +
+                  "Los demás: " + TypeKeyText + " y escriben \"sala " + code + "\" (o Configuración → Sala → Unirse…).\n\n" +
+                  "Mientras uses código, la sala automática de Steam queda en pausa.",
+                            L("Sala compartida", "Shared room"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         void JoinRoom()
         {
             string code = Room.CleanCode(Microsoft.VisualBasic.Interaction.InputBox(
-                "Pegá el código de la sala que te pasó tu amigo:", "Unirse con código", ""));
+                L("Pegá el código de la sala que te pasó tu amigo:", "Paste the room code your friend gave you:"), L("Unirse con código", "Join with code"), ""));
             if (code.Length == 0) return;
-            if (code.Length < 6) { MessageBox.Show("Ese código no parece válido.", "Sala compartida"); return; }
+            if (code.Length < 6) { MessageBox.Show(L("Ese código no parece válido.", "That code doesn't look valid."), L("Sala compartida", "Shared room")); return; }
             if (MyName.Length == 0 && !AskName()) return;
             JoinRoomCode(code);
         }
@@ -4911,18 +5012,19 @@ Puerto=8765
         // ---- sala desde el cuadro de escribir (sin salir del juego): "sala nueva", "sala <codigo>", "sala salir"
         public string BoxRoomHint(string text)
         {
-            var m = Regex.Match(Txt.Norm(text ?? ""), @"^sala\b\s*(.*)$");
+            var m = Regex.Match(Txt.Norm(text ?? ""), @"^(?:sala|room)\b\s*(.*)$");
             if (!m.Success) return null;
             string r = m.Groups[1].Value.Trim();
-            if (r.Length == 0) return ManualRoom ? "Estás en la sala " + cfg.Get("Sala", "") + " · \"sala salir\" · \"sala nueva\"" : "\"sala nueva\": crear · \"sala CÓDIGO\": entrar · \"sala salir\"";
-            if (Regex.IsMatch(r, @"^(nueva|crear|crea|new)$")) return "Enter: crear sala (el código queda copiado para el chat)";
-            if (Regex.IsMatch(r, @"^(salir|dejar|leave)$")) return "Enter: salir de la sala con código";
+            if (r.Length == 0) return Lang.En ? (ManualRoom ? "You're in room " + cfg.Get("Sala", "") + " · \"room leave\" · \"room new\"" : "\"room new\": create · \"room CODE\": join · \"room leave\"")
+                : ManualRoom ? "Estás en la sala " + cfg.Get("Sala", "") + " · \"sala salir\" · \"sala nueva\"" : "\"sala nueva\": crear · \"sala CÓDIGO\": entrar · \"sala salir\"";
+            if (Regex.IsMatch(r, @"^(nueva|crear|crea|new)$")) return L("Enter: crear sala (el código queda copiado para el chat)", "Enter: create room (the code gets copied for the chat)");
+            if (Regex.IsMatch(r, @"^(salir|dejar|leave|exit)$")) return L("Enter: salir de la sala con código", "Enter: leave the code room");
             string code = Room.CleanCode(r);
-            return code.Length >= 6 ? "Enter: entrar a la sala " + code : "Código incompleto";
+            return code.Length >= 6 ? L("Enter: entrar a la sala ", "Enter: join room ") + code : L("Código incompleto", "Incomplete code");
         }
         public bool BoxRoom(string text)
         {
-            var m = Regex.Match(Txt.Norm(text ?? ""), @"^sala\b\s*(.*)$");
+            var m = Regex.Match(Txt.Norm(text ?? ""), @"^(?:sala|room)\b\s*(.*)$");
             if (!m.Success) return false;
             string r = m.Groups[1].Value.Trim();
             if (MyName.Length == 0) SetCfg("Nombre", "Survivor " + new Random().Next(10, 100)); // sin ventana para preguntar (se cambia desde el menu)
@@ -4932,8 +5034,8 @@ Puerto=8765
                 AnnounceLeave();
                 SetCfg("Sala", code);
                 StopSteam(); StartRoom(); PublishAll();
-                try { Clipboard.SetText("sala " + code); } catch { }
-                Feedback("sala creada: " + code + " · copiado \"sala " + code + "\", pegalo en el chat (Ctrl+V)", Color.FromArgb(130, 190, 255), 15000);
+                try { Clipboard.SetText(L("sala ", "room ") + code); } catch { }
+                Feedback(Lang.En ? "room created: " + code + " · copied \"room " + code + "\", paste it in the chat (Ctrl+V)" : "sala creada: " + code + " · copiado \"sala " + code + "\", pegalo en el chat (Ctrl+V)", Color.FromArgb(130, 190, 255), 15000);
                 return true;
             }
             if (Regex.IsMatch(r, @"^(salir|dejar|leave)$")) { if (ManualRoom) LeaveRoom(); return true; }
@@ -4951,7 +5053,7 @@ Puerto=8765
             SetCfg("Sala", code);
             StopSteam();
             StartRoom();
-            Feedback("entraste a la sala " + code, Color.FromArgb(130, 190, 255), 5000);
+            Feedback(L("entraste a la sala ", "you joined room ") + code, Color.FromArgb(130, 190, 255), 5000);
         }
 
         void LeaveRoom()
@@ -4961,7 +5063,7 @@ Puerto=8765
             DebugEvent("sala: salí de la sala con código");
             StartRoom(); // si corresponde, vuelve la automatica (el vigia arranca en el proximo tick)
             SteamTick();
-            Feedback("saliste de la sala con código" + (AutoRoom ? " · vuelve la automática de Steam" : ""), Color.Silver, 5000);
+            Feedback(L("saliste de la sala con código", "you left the code room") + (AutoRoom ? L(" · vuelve la automática de Steam", " · back to the automatic Steam room") : ""), Color.Silver, 5000);
         }
 
         void StopSteam()
@@ -4981,13 +5083,13 @@ Puerto=8765
 
         string RoomText()
         {
-            string conn = room == null ? "" : " · " + (roomStatus.Length > 0 ? roomStatus : "conectando…");
-            if (ManualRoom) return "Sala con código " + cfg.Get("Sala", "") + conn;
-            if (!AutoRoom) return "Sin sala";
+            string conn = room == null ? "" : " · " + (roomStatus.Length > 0 ? roomStatus : L("conectando…", "connecting…"));
+            if (ManualRoom) return L("Sala con código ", "Code room ") + cfg.Get("Sala", "") + conn;
+            if (!AutoRoom) return L("Sin sala", "No room");
             if (steamErr.Length > 0) return "Steam: " + steamErr;
-            if (steamProc == null) return "Automática: esperando que abras DBD";
-            if (steamLobby.Length == 0) return "Automática: esperando grupo de Steam";
-            return "Grupo de Steam" + (partyCount > 0 ? " (+" + partyCount + " amigo" + (partyCount > 1 ? "s" : "") + ")" : " (solo vos)") + conn;
+            if (steamProc == null) return L("Automática: esperando que abras DBD", "Automatic: waiting for DBD to open");
+            if (steamLobby.Length == 0) return L("Automática: esperando grupo de Steam", "Automatic: waiting for a Steam party");
+            return L("Grupo de Steam", "Steam party") + (partyCount > 0 ? " (+" + partyCount + L(" amigo", " friend") + (partyCount > 1 ? "s" : "") + ")" : L(" (solo vos)", " (just you)")) + conn;
         }
 
         public bool previewRoomLine; // solo para probar en la vista
@@ -4999,9 +5101,9 @@ Puerto=8765
             if (!ShowRoomLine || (Preview && !previewRoomLine) || (room == null && !Preview)) return null;
             if (!ManualRoom && partyCount <= 0 && !Preview) return null;
             if (!roomHover) return "👥";
-            string conn = roomStatus.StartsWith("conectad") ? "" : " · conectando…";
-            if (ManualRoom) return "👥 sala " + cfg.Get("Sala", "") + (roomMembers.Count > 0 ? " · " + RoomCount + "/" + MaxRoom : "") + conn;
-            if (partyCount > 0) return "👥 grupo de Steam +" + partyCount + conn;
+            string conn = roomStatus == Lang.L("conectado", "connected") ? "" : Lang.L(" · conectando…", " · connecting…");
+            if (ManualRoom) return L("👥 sala ", "👥 room ") + cfg.Get("Sala", "") + (roomMembers.Count > 0 ? " · " + RoomCount + "/" + MaxRoom : "") + conn;
+            if (partyCount > 0) return L("👥 grupo de Steam +", "👥 Steam party +") + partyCount + conn;
             return null;
         }
 
@@ -5011,7 +5113,7 @@ Puerto=8765
             roomLabel.Text = RoomText();
             autoItem.Checked = AutoRoom;
             roomCopy.Enabled = roomLeave.Enabled = ManualRoom;
-            string t = "DBD Overlay v" + Updater.AppVersion + " · " + RoomText();
+            string t = AppName + " v" + Updater.AppVersion + " · " + RoomText();
             tray.Text = t.Length > 63 ? t.Substring(0, 63) : t;
             // el icono de la barra de tareas se pone verde mientras compartis la lista con alguien
             var ic = InGroup ? trayGreen : trayRed;
@@ -5148,8 +5250,8 @@ Puerto=8765
         }
 
         static readonly Tuple<string, string>[] Corners = {
-            Tuple.Create("arriba-derecha", "Arriba a la derecha"), Tuple.Create("arriba-izquierda", "Arriba a la izquierda"),
-            Tuple.Create("abajo-derecha", "Abajo a la derecha"), Tuple.Create("abajo-izquierda", "Abajo a la izquierda") };
+            Tuple.Create("arriba-derecha", L("Arriba a la derecha", "Top right")), Tuple.Create("arriba-izquierda", L("Arriba a la izquierda", "Top left")),
+            Tuple.Create("abajo-derecha", L("Abajo a la derecha", "Bottom right")), Tuple.Create("abajo-izquierda", L("Abajo a la izquierda", "Bottom left")) };
 
         // valores de fabrica de todo lo que es apariencia (las teclas, la sala y la voz no se tocan)
         static readonly Tuple<string, string>[] LookDefaults = {
@@ -5308,6 +5410,11 @@ Puerto=8765
             int y;
             string cur;
             static readonly string[] Pages = { "Lista", "Mapa", "Teclas", "Sala", "Voz", "General" };
+            static string PageLabel(string p)
+            {
+                if (!Lang.En) return p;
+                switch (p) { case "Lista": return "List"; case "Mapa": return "Map"; case "Teclas": return "Keys"; case "Sala": return "Room"; case "Voz": return "Voice"; default: return p; }
+            }
             const int X = 24, W = 420;
             static Color Bg { get { return Dbd.Bg; } }
             static Color Fg { get { return Dbd.Fg; } }
@@ -5319,7 +5426,7 @@ Puerto=8765
             public SettingsWindow(Overlay o, string page)
             {
                 ov = o;
-                Text = "DBD Overlay · Configuración";
+                Text = AppName + L(" · Configuración", " · Settings");
                 FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
                 StartPosition = FormStartPosition.CenterScreen;
                 ClientSize = new Size(640, 580);
@@ -5334,8 +5441,8 @@ Puerto=8765
                     var g = e.Graphics;
                     var glow = new Rectangle(0, nav.Height - 220, nav.Width, 220);
                     using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(glow.X, glow.Y - 2, glow.Width, glow.Height + 4), Color.FromArgb(0, 80, 6, 12), Color.FromArgb(110, 80, 6, 12), 90f)) g.FillRectangle(br, glow);
-                    TextRenderer.DrawText(g, "DBD", Dbd.Head(22f), new Point(18, 16), Dbd.AccHi, TextFormatFlags.NoPrefix);
-                    TextRenderer.DrawText(g, "OVERLAY", Dbd.Head(11f), new Point(21, 50), Dbd.Fg, TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(g, "CALLOUTS", Dbd.Head(21f), new Point(18, 16), Dbd.AccHi, TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(g, "IN THE FOG", Dbd.Head(11f), new Point(21, 50), Dbd.Fg, TextFormatFlags.NoPrefix);
                     using (var br = new SolidBrush(Dbd.Acc)) g.FillRectangle(br, 21, 74, 34, 2);
                     TextRenderer.DrawText(g, "v" + Updater.AppVersion, Dbd.Cond(9f), new Point(21, nav.Height - 28), Dbd.Dim, TextFormatFlags.NoPrefix);
                     using (var pen = new Pen(Dbd.Line)) g.DrawLine(pen, nav.Width - 1, 0, nav.Width - 1, nav.Height);
@@ -5343,7 +5450,7 @@ Puerto=8765
                 int ny = 96;
                 foreach (var p in Pages)
                 {
-                    var l = new DNav { Text = p, Bounds = new Rectangle(0, ny, 159, 40), Font = Dbd.Head(11.5f), BackColor = Dbd.Side };
+                    var l = new DNav { Text = PageLabel(p), Bounds = new Rectangle(0, ny, 159, 40), Font = Dbd.Head(11.5f), BackColor = Dbd.Side };
                     string pp = p;
                     l.Click += (s, e) => ShowPage(pp);
                     nav.Controls.Add(l); navItems.Add(l);
@@ -5495,128 +5602,142 @@ Puerto=8765
             void PageList()
             {
                 var scr = Screen.PrimaryScreen.Bounds;
-                Title("Lista de perks");
-                var sample = Buttons(B("Ver una lista de ejemplo", () => { if (ov.SampleOn) ov.EndSample(); else ov.StartSample(); }, () => ov.SampleOn || !ov.HasAnything()))[0];
-                refreshers.Add(() => sample.Text = (ov.SampleOn ? "Quitar la lista de ejemplo" : "Ver una lista de ejemplo").ToUpperInvariant());
-                Note("Con la lista vacía podés poner una de ejemplo para ver cómo queda cada cambio. Se quita sola al cerrar esta ventana.");
-                Choice("Esquina de la pantalla", Corners.Select(c => c.Item2).ToArray(),
+                Title(L("Lista de perks", "Perk list"));
+                var sample = Buttons(B(L("Ver una lista de ejemplo", "Show a sample list"), () => { if (ov.SampleOn) ov.EndSample(); else ov.StartSample(); }, () => ov.SampleOn || !ov.HasAnything()))[0];
+                refreshers.Add(() => sample.Text = (ov.SampleOn ? L("Quitar la lista de ejemplo", "Remove the sample list") : L("Ver una lista de ejemplo", "Show a sample list")).ToUpperInvariant());
+                Note(L("Con la lista vacía podés poner una de ejemplo para ver cómo queda cada cambio. Se quita sola al cerrar esta ventana.", "With an empty list you can show a sample one to see how each change looks. It goes away when you close this window."));
+                Choice(L("Esquina de la pantalla", "Screen corner"), Corners.Select(c => c.Item2).ToArray(),
                     () => { string p = C.Get("Posicion", "arriba-derecha").ToLowerInvariant(); return (p.Contains("abajo") ? 2 : 0) + (p.Contains("izq") ? 1 : 0); },
                     i => { ov.SetCfg("Posicion", Corners[i].Item1); if (ov.tip != null) ov.tip.Hide(); ov.Relayout(); });
-                Slider("Distancia al borde (de costado)", 0, scr.Width / 2, () => C.GetInt("MargenX", 30), v => { ov.Live("MargenX", v.ToString()); ov.Relayout(); }, v => v + " px");
-                Slider("Distancia al borde (de arriba o abajo)", 0, scr.Height / 2, () => C.GetInt("MargenY", 140), v => { ov.Live("MargenY", v.ToString()); ov.Relayout(); }, v => v + " px");
-                Slider("Escala general", 50, 200, () => C.GetInt("Escala", 100), v => { ov.Live("Escala", v.ToString()); Look(); }, v => v + " %");
-                Slider("Tamaño de los íconos", 24, 120, () => C.GetInt("TamanoPerk", 72), v => { ov.Live("TamanoPerk", v.ToString()); ov.Relayout(); }, v => v + " px");
-                Slider("Tamaño de la letra", 8, 28, () => C.GetInt("TamanoLetra", 14), v => { ov.Live("TamanoLetra", v.ToString()); Look(); }, v => v.ToString());
-                Slider("Opacidad", 30, 100, () => (int)Math.Round(C.GetD("Opacidad", 0.85) * 100),
+                Slider(L("Distancia al borde (de costado)", "Distance from the side edge"), 0, scr.Width / 2, () => C.GetInt("MargenX", 30), v => { ov.Live("MargenX", v.ToString()); ov.Relayout(); }, v => v + " px");
+                Slider(L("Distancia al borde (de arriba o abajo)", "Distance from the top/bottom edge"), 0, scr.Height / 2, () => C.GetInt("MargenY", 140), v => { ov.Live("MargenY", v.ToString()); ov.Relayout(); }, v => v + " px");
+                Slider(L("Escala general", "Overall scale"), 50, 200, () => C.GetInt("Escala", 100), v => { ov.Live("Escala", v.ToString()); Look(); }, v => v + " %");
+                Slider(L("Tamaño de los íconos", "Icon size"), 24, 120, () => C.GetInt("TamanoPerk", 72), v => { ov.Live("TamanoPerk", v.ToString()); ov.Relayout(); }, v => v + " px");
+                Slider(L("Tamaño de la letra", "Text size"), 8, 28, () => C.GetInt("TamanoLetra", 14), v => { ov.Live("TamanoLetra", v.ToString()); Look(); }, v => v.ToString());
+                Slider(L("Opacidad", "Opacity"), 30, 100, () => (int)Math.Round(C.GetD("Opacidad", 0.85) * 100),
                     v => { ov.Live("Opacidad", (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture)); ov.Opacity = v / 100.0; }, v => v + " %");
-                Check("Mostrar los nombres de perks y addons", () => ov.showNames, v => ov.SetNames(v));
-                Check("Mostrar el nombre del killer", () => ov.KillerOn, v => { ov.SetCfg("MostrarKiller", v ? "si" : "no"); ov.Relayout(); });
-                Slider("Tamaño del nombre del killer", 6, 22, () => C.GetInt("TamanoKiller", 12), v => { ov.Live("TamanoKiller", v.ToString()); ov.killerFont = null; ov.Relayout(); }, v => v.ToString());
-                Check("Mostrar solo con el menú de DBD abierto (ESC)", () => ov.MenuOnly, v => ov.SetCfg("Visibilidad", v ? "menu" : "siempre"));
-                Note("Mientras jugás la lista se oculta y aparece al abrir el menú ESC, al escribir con Shift+T o cuando hay un mensaje.");
+                Check(L("Mostrar los nombres de perks y addons", "Show perk and add-on names"), () => ov.showNames, v => ov.SetNames(v));
+                Check(L("Mostrar el nombre del killer", "Show the killer's name"), () => ov.KillerOn, v => { ov.SetCfg("MostrarKiller", v ? "si" : "no"); ov.Relayout(); });
+                Slider(L("Tamaño del nombre del killer", "Killer name size"), 6, 22, () => C.GetInt("TamanoKiller", 12), v => { ov.Live("TamanoKiller", v.ToString()); ov.killerFont = null; ov.Relayout(); }, v => v.ToString());
+                Check(L("Mostrar solo con el menú de DBD abierto (ESC)", "Show only while the DBD menu is open (ESC)"), () => ov.MenuOnly, v => ov.SetCfg("Visibilidad", v ? "menu" : "siempre"));
+                Note(L("Mientras jugás la lista se oculta y aparece al abrir el menú ESC, al escribir con ", "While you play the list is hidden; it shows up when you open the ESC menu, when you type with ") + ov.TypeKeyText + L(" o cuando hay un mensaje.", " or when there's a message."));
             }
 
             void PageMap()
             {
                 var scr = Screen.PrimaryScreen.Bounds;
-                Title("Mapa");
-                var show = Buttons(B("Ver un mapa de ejemplo", () =>
+                Title(L("Mapa", "Map"));
+                var show = Buttons(B(L("Ver un mapa de ejemplo", "Show a sample map"), () =>
                 {
                     if (ov.mapShown != null) { ov.HideMap(false); return; }
                     var m = ov.cat.Maps.FirstOrDefault(x => ov.cat.MapFiles.ContainsKey(x.Name));
                     if (m != null) ov.ShowMap(m.Name, false);
                 }, () => ov.cat.MapFiles.Count > 0))[0];
-                refreshers.Add(() => show.Text = (ov.mapShown != null ? "Ocultar el mapa" : "Ver un mapa de ejemplo").ToUpperInvariant());
-                Note("El mapa se elige escribiendo su nombre en el cuadro de Shift+T (por ejemplo \"mapa coal\"). Cuando estás en sala, lo ven todos.");
-                Slider("Tamaño", 160, 700, () => ov.MapSize, v => { ov.Live("TamanoMapa", v.ToString()); ov.RefreshMap(); }, v => v + " px");
-                Slider("Opacidad", 15, 100, () => ov.MapOpacity, v => { ov.Live("OpacidadMapa", v.ToString()); if (ov.mapWin != null) ov.mapWin.Opacity = v / 100.0; }, v => v + " %");
-                Slider("Posición desde la izquierda", 0, Math.Max(100, scr.Width - 160), () => C.GetInt("MapaX", 20), v => { ov.Live("MapaX", v.ToString()); ov.RefreshMap(); }, v => v + " px");
-                Slider("Posición desde arriba", 0, Math.Max(100, scr.Height - 160), () => C.GetInt("MapaY", 20), v => { ov.Live("MapaY", v.ToString()); ov.RefreshMap(); }, v => v + " px");
-                Check("Mostrar solo con el menú de DBD abierto (ESC)", () => ov.MapMenuOnly, v => { ov.SetCfg("MapaVisibilidad", v ? "menu" : "siempre"); ov.UpdateMapVisibility(ov.cursorShown); });
-                Note("Planos con callouts de Lethia (hens333.com/callouts), versión de Zexov sobre el original de Broosley y Evo.");
+                refreshers.Add(() => show.Text = (ov.mapShown != null ? L("Ocultar el mapa", "Hide the map") : L("Ver un mapa de ejemplo", "Show a sample map")).ToUpperInvariant());
+                Note(Lang.En ? "Pick a map by typing its name in the " + ov.TypeKeyText + " box (for example \"map coal\"). In a room, everyone sees it." : "El mapa se elige escribiendo su nombre en el cuadro de " + ov.TypeKeyText + " (por ejemplo \"mapa coal\"). Cuando estás en sala, lo ven todos.");
+                Slider(L("Tamaño", "Size"), 160, 700, () => ov.MapSize, v => { ov.Live("TamanoMapa", v.ToString()); ov.RefreshMap(); }, v => v + " px");
+                Slider(L("Opacidad", "Opacity"), 15, 100, () => ov.MapOpacity, v => { ov.Live("OpacidadMapa", v.ToString()); if (ov.mapWin != null) ov.mapWin.Opacity = v / 100.0; }, v => v + " %");
+                Slider(L("Posición desde la izquierda", "Position from the left"), 0, Math.Max(100, scr.Width - 160), () => C.GetInt("MapaX", 20), v => { ov.Live("MapaX", v.ToString()); ov.RefreshMap(); }, v => v + " px");
+                Slider(L("Posición desde arriba", "Position from the top"), 0, Math.Max(100, scr.Height - 160), () => C.GetInt("MapaY", 20), v => { ov.Live("MapaY", v.ToString()); ov.RefreshMap(); }, v => v + " px");
+                Check(L("Mostrar solo con el menú de DBD abierto (ESC)", "Show only while the DBD menu is open (ESC)"), () => ov.MapMenuOnly, v => { ov.SetCfg("MapaVisibilidad", v ? "menu" : "siempre"); ov.UpdateMapVisibility(ov.cursorShown); });
+                Note(L("Planos con callouts de Lethia (hens333.com/callouts), versión de Zexov sobre el original de Broosley y Evo.", "Callout maps by Lethia (hens333.com/callouts), Zexov's version of the original by Broosley and Evo."));
             }
 
             void PageKeys()
             {
-                Title("Teclas");
+                Title(L("Teclas", "Keys"));
                 foreach (var act in KeyActions)
                 {
                     var a = act;
                     body.Controls.Add(new Label { Text = a.Item1, AutoSize = true, Location = new Point(X, y + 6), ForeColor = Fg });
                     var v = new Label { AutoSize = false, Bounds = new Rectangle(X + 215, y + 4, 115, 22), ForeColor = Dbd.AccHi, Font = Dbd.Head(11f), UseMnemonic = false };
-                    refreshers.Add(() => { string k = C.Get(a.Item2, a.Item3); v.Text = k.Length > 0 ? k : "sin tecla"; });
+                    refreshers.Add(() => { string k = C.Get(a.Item2, a.Item3); v.Text = k.Length > 0 ? k : L("sin tecla", "no key"); });
                     body.Controls.Add(v);
-                    Btn("Cambiar…", X + 330, () => ov.AskKey(a));
+                    Btn(L("Cambiar…", "Change…"), X + 330, () => ov.AskKey(a));
                     y += 40;
                 }
                 y += 4;
-                Check("Las teclas solo funcionan con DBD al frente", () => ov.KeysOnlyInDbd, v => ov.SetCfg("TeclasSoloEnDBD", v ? "si" : "no"));
-                Note("Así, escribiendo en Discord o en el navegador, Shift+T o Shift+G no hacen nada. Al cambiar una tecla podés usar combinaciones (Shift, Ctrl, Alt) o un botón del mouse.");
+                Check(L("Las teclas solo funcionan con DBD al frente", "Keys only work while DBD is in front"), () => ov.KeysOnlyInDbd, v => ov.SetCfg("TeclasSoloEnDBD", v ? "si" : "no"));
+                Note(L("Así, escribiendo en Discord o en el navegador, las teclas de la app no hacen nada. Al cambiar una tecla podés usar combinaciones (Shift, Ctrl, Alt) o un botón del mouse.", "So typing in Discord or the browser doesn't trigger the app's keys. When changing a key you can use combinations (Shift, Ctrl, Alt) or a mouse button."));
             }
 
             void PageRoom()
             {
-                Title("Sala compartida");
+                Title(L("Sala compartida", "Shared room"));
                 Value(() => ov.RoomText());
-                Note("En sala, lo que anota uno lo ven todos.");
-                Check("Automática con mi grupo de Steam", () => ov.AutoRoom, v => ov.SetAuto(v));
-                Note("Con DBD abierto, todos los del mismo grupo de Steam que tengan la app quedan juntos, sin hacer nada.");
-                Title("Sala con código");
-                Note("Para jugar con gente que no está en tu grupo de Steam (hasta 4 por sala). También se maneja desde Shift+T escribiendo \"sala nueva\", \"sala CÓDIGO\" o \"salir\".");
-                Value(() => ov.ManualRoom ? "Código: " + ov.cfg.Get("Sala", "") : "No estás en una sala con código");
-                Buttons(B("Crear sala", () => ov.CreateRoom()), B("Unirse…", () => ov.JoinRoom()),
-                        B("Copiar código", () => { try { Clipboard.SetText(ov.cfg.Get("Sala", "")); } catch { } }, () => ov.ManualRoom),
-                        B("Salir", () => ov.LeaveRoom(), () => ov.ManualRoom));
-                Value(() => "Tu nombre: " + (ov.MyName.Length > 0 ? ov.MyName : "(sin nombre)"));
-                Buttons(B("Cambiar mi nombre…", () => ov.AskName()));
-                Check("Mostrar el ícono de sala en la lista", () => ov.ShowRoomLine, v => { ov.SetCfg("MostrarSala", v ? "si" : "no"); if (ov.roomLineItem != null) ov.roomLineItem.Checked = v; ov.Relayout(); });
+                Note(L("En sala, lo que anota uno lo ven todos.", "In a room, what one person adds, everyone sees."));
+                Check(L("Automática con mi grupo de Steam", "Automatic with my Steam party"), () => ov.AutoRoom, v => ov.SetAuto(v));
+                Note(L("Con DBD abierto, todos los del mismo grupo de Steam que tengan la app quedan juntos, sin hacer nada.", "With DBD open, everyone in the same Steam party who has the app is grouped automatically."));
+                Title(L("Sala con código", "Room with a code"));
+                Note(Lang.En ? "To play with people who are not in your Steam party, like solo queue teammates or friends on Epic (up to 4 per room). You can also use the " + ov.TypeKeyText + " box: \"room new\", \"room CODE\" or \"room leave\"."
+                             : "Para jugar con gente que no está en tu grupo de Steam, como randoms o jugadores de Epic (hasta 4 por sala). También se maneja desde el cuadro de " + ov.TypeKeyText + " escribiendo \"sala nueva\", \"sala CÓDIGO\" o \"sala salir\".");
+                Value(() => ov.ManualRoom ? L("Código: ", "Code: ") + ov.cfg.Get("Sala", "") : L("No estás en una sala con código", "You're not in a code room"));
+                Buttons(B(L("Crear sala", "Create room"), () => ov.CreateRoom()), B(L("Unirse…", "Join…"), () => ov.JoinRoom()),
+                        B(L("Copiar código", "Copy code"), () => { try { Clipboard.SetText(ov.cfg.Get("Sala", "")); } catch { } }, () => ov.ManualRoom),
+                        B(L("Salir", "Leave"), () => ov.LeaveRoom(), () => ov.ManualRoom));
+                Value(() => L("Tu nombre: ", "Your name: ") + (ov.MyName.Length > 0 ? ov.MyName : L("(sin nombre)", "(no name)")));
+                Buttons(B(L("Cambiar mi nombre…", "Change my name…"), () => ov.AskName()));
+                Check(L("Mostrar el ícono de sala en la lista", "Show the room icon on the list"), () => ov.ShowRoomLine, v => { ov.SetCfg("MostrarSala", v ? "si" : "no"); if (ov.roomLineItem != null) ov.roomLineItem.Checked = v; ov.Relayout(); });
             }
 
             void PageVoice()
             {
-                Title("Voz");
-                Note("Anotar hablando con Whisper (corre en tu PC, sin internet). Usa bastante procesador mientras entiende una frase: en PCs con pocos recursos conviene dejarla apagada y anotar con Shift+T.");
-                Check("Reconocimiento de voz", () => ov.VoiceOn, v => ov.SetVoice(v));
-                var devs = new List<string> { "Predeterminado de Windows" };
+                Title(L("Voz", "Voice"));
+                Note(Lang.En ? "Add things by talking, with Whisper (runs on your PC, no internet). It uses a fair amount of CPU while it understands a sentence: on low-end PCs keep it off and type with " + ov.TypeKeyText + "."
+                             : "Anotar hablando con Whisper (corre en tu PC, sin internet). Usa bastante procesador mientras entiende una frase: en PCs con pocos recursos conviene dejarla apagada y anotar con " + ov.TypeKeyText + ".");
+                Check(L("Reconocimiento de voz", "Voice recognition"), () => ov.VoiceOn, v => ov.SetVoice(v));
+                var devs = new List<string> { L("Predeterminado de Windows", "Windows default") };
                 try { devs.AddRange(Mic.Devices()); } catch { }
-                Choice("Micrófono", devs.ToArray(),
+                Choice(L("Micrófono", "Microphone"), devs.ToArray(),
                     () => { string m = C.Get("Microfono", ""); int i = devs.FindIndex(d => d.Equals(m, StringComparison.OrdinalIgnoreCase)); return m.Length == 0 ? 0 : i; },
                     i => { ov.SetCfg("Microfono", i == 0 ? "" : devs[i]); if (ov.mic != null) ov.StartMic(); });
-                var hands = Check("Hablar sin tecla (prueba)", () => ov.HandsOn, v => ov.SetHands(v));
-                var listen = Check("Escuchar Discord (prueba)", () => ov.ListenOn, v => ov.SetListen(v));
-                var heard = Check("Mostrar lo que entiende Whisper", () => ov.ShowHeard, v => ov.SetCfg("VerTranscripcion", v ? "si" : "no"));
+                var hands = Check(L("Hablar sin tecla (prueba)", "Talk without a key (beta)"), () => ov.HandsOn, v => ov.SetHands(v));
+                var listen = Check(L("Escuchar Discord (prueba)", "Listen to Discord (beta)"), () => ov.ListenOn, v => ov.SetListen(v));
+                var heard = Check(L("Mostrar lo que entiende Whisper", "Show what Whisper understands"), () => ov.ShowHeard, v => ov.SetCfg("VerTranscripcion", v ? "si" : "no"));
                 Func<bool> inst = () => ov.voice || (ov.FindWhisperExe() != null && ov.FindModel() != null);
                 refreshers.Add(() => { bool v = ov.VoiceOn; hands.Enabled = listen.Enabled = heard.Enabled = v; });
-                var bs = Buttons(B("Ver todo lo que escuchó…", () =>
+                var bs = Buttons(B(L("Ver todo lo que escuchó…", "See everything it heard…"), () =>
                         {
                             string path = Path.Combine(ov.dir, "logs", "escuchado.txt");
                             try { if (!File.Exists(path)) File.WriteAllText(path, "", Encoding.UTF8); Process.Start("notepad.exe", "\"" + path + "\""); } catch { }
-                        }), B("Instalar Whisper…", () => ov.InstallVoice(), () => !inst() && !ov.installing));
-                refreshers.Add(() => bs[1].Text = (inst() ? "Whisper instalado ✓" : ov.installing ? "Instalando Whisper…" : "Instalar Whisper…").ToUpperInvariant());
+                        }), B(L("Instalar Whisper…", "Install Whisper…"), () => ov.InstallVoice(), () => !inst() && !ov.installing));
+                refreshers.Add(() => bs[1].Text = (inst() ? L("Whisper instalado ✓", "Whisper installed ✓") : ov.installing ? L("Instalando Whisper…", "Installing Whisper…") : L("Instalar Whisper…", "Install Whisper…")).ToUpperInvariant());
             }
 
             void PageGeneral()
             {
-                Title("Idioma");
-                var langs = new[] { "Inglés", "Español" };
-                Choice("Nombres", langs, () => C.Get("IdiomaNombres", "en").ToLowerInvariant().StartsWith("es") ? 1 : 0,
+                Title(L("Idioma", "Language"));
+                Choice(L("Idioma de la app", "App language"), new[] { L("Automático (el de Windows)", "Automatic (Windows language)"), "Español", "English" },
+                    () => Lang.Setting == "es" ? 1 : Lang.Setting == "en" ? 2 : 0,
+                    i =>
+                    {
+                        string v = i == 1 ? "es" : i == 2 ? "en" : "auto";
+                        if (v == Lang.Setting) return;
+                        ov.SetCfg("IdiomaApp", v);
+                        bool en = i == 2 || (i == 0 && !CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("es", StringComparison.OrdinalIgnoreCase));
+                        if (en == Lang.En) { Lang.Setting = v; return; }
+                        ov.RestartApp();
+                    });
+                Note(L("Al cambiarlo la app se reinicia (la lista y la sala se mantienen).", "Changing it restarts the app (the list and the room are kept)."));
+                var langs = new[] { L("Inglés", "English"), L("Español", "Spanish") };
+                Choice(L("Nombres de perks y addons", "Perk and add-on names"), langs, () => C.Get("IdiomaNombres", "en").ToLowerInvariant().StartsWith("es") ? 1 : 0,
                     i => { ov.SetCfg("IdiomaNombres", i == 1 ? "es" : "en"); if (ov.tip != null) { ov.tip.Hide(); ov.hoverE = null; } ov.Relayout(); });
-                Choice("Descripciones", langs, () => C.Get("IdiomaDescripciones", "es").ToLowerInvariant().StartsWith("es") ? 1 : 0,
+                Choice(L("Descripciones", "Descriptions"), langs, () => C.Get("IdiomaDescripciones", Lang.En ? "en" : "es").ToLowerInvariant().StartsWith("es") ? 1 : 0,
                     i => { ov.SetCfg("IdiomaDescripciones", i == 1 ? "es" : "en"); if (ov.tip != null) { ov.tip.Hide(); ov.hoverE = null; } ov.Relayout(); });
                 Title("App");
-                Value(() => "Versión " + Updater.AppVersion);
-                Buttons(B("Buscar actualización", () => { if (ov.updating) return; ov.Feedback("Buscando actualización…", Color.FromArgb(200, 200, 210), 4000); ov.CheckUpdate(true); }),
-                        B("Abrir carpeta", () => { try { Process.Start("explorer.exe", "\"" + ov.dir + "\""); } catch { } }));
-                Buttons(B("Editar apodos", () => { try { ov.st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(ov.dir, "apodos.txt") + "\""); } catch { } }),
-                        B("Editar config.ini (avanzado)", () => { ov.FlushCfg(); try { Process.Start("notepad.exe", "\"" + Path.Combine(ov.dir, "config.ini") + "\""); } catch { } }));
-                Note("Los apodos son nombres alternativos para perks, addons o killers (por ejemplo \"ruina\" para Hex: Ruin).");
-                Title("Apariencia");
-                Buttons(B("Volver la apariencia a la de fábrica", () =>
+                Value(() => L("Versión ", "Version ") + Updater.AppVersion);
+                Buttons(B(L("Buscar actualización", "Check for updates"), () => { if (ov.updating) return; ov.Feedback(L("Buscando actualización…", "Checking for updates…"), Color.FromArgb(200, 200, 210), 4000); ov.CheckUpdate(true); }),
+                        B(L("Abrir carpeta", "Open folder"), () => { try { Process.Start("explorer.exe", "\"" + ov.dir + "\""); } catch { } }));
+                Buttons(B(L("Editar apodos", "Edit nicknames"), () => { try { ov.st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(ov.dir, "apodos.txt") + "\""); } catch { } }),
+                        B(L("Editar config.ini (avanzado)", "Edit config.ini (advanced)"), () => { ov.FlushCfg(); try { Process.Start("notepad.exe", "\"" + Path.Combine(ov.dir, "config.ini") + "\""); } catch { } }));
+                Note(L("Los apodos son nombres alternativos para perks, addons o killers (por ejemplo \"ruina\" para Hex: Ruin).", "Nicknames are alternative names for perks, add-ons or killers (for example \"ruin\" for Hex: Ruin)."));
+                Title(L("Apariencia", "Appearance"));
+                Buttons(B(L("Volver la apariencia a la de fábrica", "Reset the appearance to defaults"), () =>
                 {
-                    if (MessageBox.Show(this, "¿Volver el tamaño, la posición y la opacidad de la lista y del mapa a los valores de fábrica?\n(Las teclas, la sala y la voz no se tocan.)", "DBD Overlay", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    if (MessageBox.Show(this, L("¿Volver el tamaño, la posición y la opacidad de la lista y del mapa a los valores de fábrica?\n(Las teclas, la sala y la voz no se tocan.)", "Reset the size, position and opacity of the list and the map to their defaults?\n(Keys, room and voice are not changed.)"), AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
                     foreach (var d in LookDefaults) ov.SetCfg(d.Item1, d.Item2);
                     ov.Opacity = 0.85; ov.MakeFonts(); ov.Relayout(); ov.RefreshMap();
-                    ov.Feedback("apariencia de fábrica", Color.Silver, 3000);
+                    ov.Feedback(L("apariencia de fábrica", "default appearance"), Color.Silver, 3000);
                 }));
             }
         }
@@ -5625,48 +5746,48 @@ Puerto=8765
         {
             trayRed = TrayIcon(Color.FromArgb(190, 22, 34));
             trayGreen = TrayIcon(Color.FromArgb(40, 150, 70));
-            tray = new NotifyIcon { Icon = trayRed, Text = "DBD Overlay", Visible = true };
+            tray = new NotifyIcon { Icon = trayRed, Text = AppName, Visible = true };
             // doble clic en el icono: configuracion
             tray.MouseDoubleClick += (s, e) => { if (e.Button == MouseButtons.Left) OpenSettings(null); };
             var menu = new ContextMenuStrip();
             // arriba de todo, la version (para saber si ya se actualizo)
-            menu.Items.Add(new ToolStripMenuItem("DBD Overlay · versión " + Updater.AppVersion) { Enabled = false });
+            menu.Items.Add(new ToolStripMenuItem(AppName + L(" · versión ", " · version ") + Updater.AppVersion) { Enabled = false });
             menu.Items.Add(new ToolStripSeparator());
-            var cfgItem = new ToolStripMenuItem("Configuración…", null, (s, e) => OpenSettings(null));
+            var cfgItem = new ToolStripMenuItem(L("Configuración…", "Settings…"), null, (s, e) => OpenSettings(null));
             cfgItem.Font = new Font(cfgItem.Font, FontStyle.Bold);
             menu.Items.Add(cfgItem);
-            var typeItem = new ToolStripMenuItem("Escribir…");
+            var typeItem = new ToolStripMenuItem(L("Escribir…", "Type…"));
             typeItem.Click += (s, e) => OpenTypeBox();
             menu.Items.Add(typeItem);
-            menu.Items.Add("Borrar lista", null, (s, e) => ClearWithUndo());
+            menu.Items.Add(L("Borrar lista", "Clear list"), null, (s, e) => ClearWithUndo());
             // lo de siempre de la sala queda a mano; el resto esta en Configuracion > Sala
-            var roomMenu = new ToolStripMenuItem("Sala compartida");
-            roomLabel = new ToolStripMenuItem("Sin sala") { Enabled = false };
+            var roomMenu = new ToolStripMenuItem(L("Sala compartida", "Shared room"));
+            roomLabel = new ToolStripMenuItem(L("Sin sala", "No room")) { Enabled = false };
             roomMenu.DropDownItems.Add(roomLabel);
             roomMenu.DropDownItems.Add("-");
-            autoItem = new ToolStripMenuItem("Automática con mi grupo de Steam") { Checked = AutoRoom };
+            autoItem = new ToolStripMenuItem(L("Automática con mi grupo de Steam", "Automatic with my Steam party")) { Checked = AutoRoom };
             autoItem.Click += (s, e) => SetAuto(!AutoRoom);
             roomMenu.DropDownItems.Add(autoItem);
             roomMenu.DropDownItems.Add("-");
-            roomMenu.DropDownItems.Add("Crear sala con código", null, (s, e) => CreateRoom());
-            roomMenu.DropDownItems.Add("Unirse con código…", null, (s, e) => JoinRoom());
-            roomCopy = new ToolStripMenuItem("Copiar código", null, (s, e) =>
+            roomMenu.DropDownItems.Add(L("Crear sala con código", "Create room with a code"), null, (s, e) => CreateRoom());
+            roomMenu.DropDownItems.Add(L("Unirse con código…", "Join with a code…"), null, (s, e) => JoinRoom());
+            roomCopy = new ToolStripMenuItem(L("Copiar código", "Copy code"), null, (s, e) =>
             {
-                try { Clipboard.SetText(cfg.Get("Sala", "")); Feedback("código copiado: " + cfg.Get("Sala", ""), Color.Silver, 3000); } catch { }
+                try { Clipboard.SetText(cfg.Get("Sala", "")); Feedback(L("código copiado: ", "code copied: ") + cfg.Get("Sala", ""), Color.Silver, 3000); } catch { }
             });
             roomMenu.DropDownItems.Add(roomCopy);
-            roomLeave = new ToolStripMenuItem("Salir de la sala con código", null, (s, e) => LeaveRoom());
+            roomLeave = new ToolStripMenuItem(L("Salir de la sala con código", "Leave the code room"), null, (s, e) => LeaveRoom());
             roomMenu.DropDownItems.Add(roomLeave);
             menu.Items.Add(roomMenu);
             // estos ya no estan en el menu (estan en la ventana), pero otras partes los actualizan
-            roomLineItem = new ToolStripMenuItem("Mostrar en la lista si estoy en sala") { Checked = ShowRoomLine };
-            namesItem = new ToolStripMenuItem("Mostrar nombres") { Checked = showNames };
-            listenItem = new ToolStripMenuItem("Escuchar Discord (prueba)");
-            handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)");
-            menu.Opening += (s, e) => { typeItem.Text = "Escribir… (" + typeKeyName + ")"; };
+            roomLineItem = new ToolStripMenuItem(L("Mostrar en la lista si estoy en sala", "Show on the list when I'm in a room")) { Checked = ShowRoomLine };
+            namesItem = new ToolStripMenuItem(L("Mostrar nombres", "Show names")) { Checked = showNames };
+            listenItem = new ToolStripMenuItem(L("Escuchar Discord (prueba)", "Listen to Discord (beta)"));
+            handsItem = new ToolStripMenuItem(L("Hablar sin tecla (prueba)", "Talk without a key (beta)"));
+            menu.Opening += (s, e) => { typeItem.Text = L("Escribir… (", "Type… (") + typeKeyName + ")"; };
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Buscar actualización", null, (s, e) => { if (updating) return; Feedback("Buscando actualización…", Color.FromArgb(200, 200, 210), 4000); CheckUpdate(true); });
-            menu.Items.Add("Salir", null, (s, e) => Close());
+            menu.Items.Add(L("Buscar actualización", "Check for updates"), null, (s, e) => { if (updating) return; Feedback(L("Buscando actualización…", "Checking for updates…"), Color.FromArgb(200, 200, 210), 4000); CheckUpdate(true); });
+            menu.Items.Add(L("Salir", "Exit"), null, (s, e) => Close());
             tray.ContextMenuStrip = menu;
         }
 
@@ -5889,7 +6010,7 @@ Puerto=8765
 
             if (mic != null && VoiceOn && !mic.Running && micRestartAt < 0)
             {
-                Feedback("Micrófono: " + (mic.LastError.Length > 0 ? mic.LastError : "se cortó") + " (reintento…)", Color.OrangeRed, 6000);
+                Feedback(L("Micrófono: ", "Microphone: ") + (mic.LastError.Length > 0 ? mic.LastError : L("se cortó", "disconnected")) + L(" (reintento…)", " (retrying…)"), Color.OrangeRed, 6000);
                 DebugEvent("micrófono: " + (mic.LastError.Length > 0 ? mic.LastError : "se cortó") + " (reintento en 3 s)");
                 micRestartAt = now + 3000;
             }
@@ -5900,7 +6021,7 @@ Puerto=8765
                 if (down && !talkWarned && VoiceOn) // con la voz apagada a proposito, la tecla no dice nada
                 {
                     talkWarned = true;
-                    Feedback(installing ? "instalando la voz, esperá…" : "esta PC no tiene Whisper: instalalo desde el ícono \"D\" (por ahora solo ver)", Color.Orange, 6000);
+                    Feedback(installing ? L("instalando la voz, esperá…", "installing voice, wait…") : L("esta PC no tiene Whisper: instalalo desde Configuración → Voz", "Whisper is not installed: Settings → Voice"), Color.Orange, 6000);
                 }
                 if (!down) talkWarned = false;
                 down = false;
@@ -5936,7 +6057,7 @@ Puerto=8765
                     else if (held >= 250 && !clearHint && HasAnything())
                     {
                         clearHint = true;
-                        Feedback("mantené " + ClearKeyName + " para borrar todo…", Color.FromArgb(240, 170, 80), 1500);
+                        Feedback(L("mantené ", "hold ") + ClearKeyName + L(" para borrar todo…", " to clear everything…"), Color.FromArgb(240, 170, 80), 1500);
                     }
                 }
                 if (!c && clearDown && !clearFired && undoSnap != null && now - undoUntil < 0)
@@ -5946,7 +6067,7 @@ Puerto=8765
                     undoSnap = null;
                     UnrecordLast();
                     PublishDiff(before);
-                    Changed("borrado deshecho");
+                    Changed(L("borrado deshecho", "clear undone"));
                     DebugEvent("borrado deshecho con tecla");
                 }
                 clearDown = c;
@@ -5976,7 +6097,7 @@ Puerto=8765
 
         void ClearWithUndo()
         {
-            if (!HasAnything()) { Feedback("la lista ya está vacía", Color.Silver, 2000); return; }
+            if (!HasAnything()) { Feedback(L("la lista ya está vacía", "the list is already empty"), Color.Silver, 2000); return; }
             undoSnap = st.Snapshot();
             undoUntil = Environment.TickCount + 8000;
             DebugEvent("lista borrada con tecla o menú (antes de borrar)");
@@ -5985,7 +6106,7 @@ Puerto=8765
             st.Clear();
             st.Save(Path.Combine(dir, "estado.txt"));
             PublishReset();
-            Feedback("lista borrada · tocá " + ClearKeyName + " para deshacer", Color.FromArgb(150, 220, 150), 8000);
+            Feedback(L("lista borrada · tocá ", "list cleared · tap ") + ClearKeyName + L(" para deshacer", " to undo"), Color.FromArgb(150, 220, 150), 8000);
         }
 
         // historial.txt: que transcribio Whisper y que hizo (para ajustar el reconocimiento)
@@ -6049,10 +6170,10 @@ Puerto=8765
             var started = DateTime.Now;
             string stamp = started.ToString("yyyyMMdd-HHmmss");
             double secs = samples.Length / 16000.0;
-            if (!serverReady) { Feedback("Whisper todavía está cargando", Color.Orange, 3000); DebugEvent("audio ignorado: Whisper cargando"); return; }
+            if (!serverReady) { Feedback(L("Whisper todavía está cargando", "Whisper is still loading"), Color.Orange, 3000); DebugEvent("audio ignorado: Whisper cargando"); return; }
             if (samples.Length < 16000 * 6 / 10)
             {
-                Feedback("muy corto, mantené la tecla mientras hablás", Color.Orange, 3000);
+                Feedback(L("muy corto, mantené la tecla mientras hablás", "too short, hold the key while you talk"), Color.Orange, 3000);
                 DebugEvent("audio ignorado: muy corto (" + secs.ToString("0.00", CultureInfo.InvariantCulture) + " s)");
                 return;
             }
@@ -6068,7 +6189,7 @@ Puerto=8765
             string audioInfo = "audio: " + secs.ToString("0.0", CultureInfo.InvariantCulture) + " s, volumen pico " + (int)peak + " (minimo 700), " + SaveAudio(samples, stamp);
             if (peak < 700)
             {
-                Feedback("no se escuchó voz (¿micrófono silenciado?)", Color.FromArgb(240, 170, 80), 4000);
+                Feedback(L("no se escuchó voz (¿micrófono silenciado?)", "no voice heard (is the mic muted?)"), Color.FromArgb(240, 170, 80), 4000);
                 DebugEvent("audio descartado por silencio · " + audioInfo);
                 return;
             }
@@ -6090,7 +6211,7 @@ Puerto=8765
                     sb.Append(audioInfo + ", Whisper " + ms + " ms\r\n");
                     if (err != null)
                     {
-                        Feedback("Error de Whisper: " + err, Color.OrangeRed, 6000);
+                        Feedback(L("Error de Whisper: ", "Whisper error: ") + err, Color.OrangeRed, 6000);
                         sb.Append("ERROR de Whisper: " + err);
                         Debug(sb.ToString());
                         return;
@@ -6099,12 +6220,12 @@ Puerto=8765
                     sb.Append("antes:   " + st.Describe() + "\r\n");
                     // "mostrar nombres" / "ocultar nombres" / "nombres"
                     string nt = Txt.Norm(text);
-                    if (Regex.IsMatch(nt, @"\bnombres?\b") && nt.Split(' ').Length <= 4)
+                    if (Regex.IsMatch(nt, @"\b(?:nombres?|names?)\b") && nt.Split(' ').Length <= 4)
                     {
-                        bool v = Regex.IsMatch(nt, @"\b(ocult|sac|quit|escond|sin)") ? false
-                               : Regex.IsMatch(nt, @"\b(mostr|ver|pon|activ|con)") ? true : !showNames;
+                        bool v = Regex.IsMatch(nt, @"\b(ocult|sac|quit|escond|sin|hide|off|remove)") ? false
+                               : Regex.IsMatch(nt, @"\b(mostr|ver|pon|activ|con|show|on\b)") ? true : !showNames;
                         SetNames(v);
-                        Feedback(v ? "nombres visibles" : "nombres ocultos", Color.FromArgb(150, 220, 150), 3000);
+                        Feedback(v ? L("nombres visibles", "names shown") : L("nombres ocultos", "names hidden"), Color.FromArgb(150, 220, 150), 3000);
                         sb.Append("resultado: nombres " + (v ? "visibles" : "ocultos"));
                         Debug(sb.ToString());
                         return;
@@ -6119,7 +6240,7 @@ Puerto=8765
                     Debug(sb.ToString());
                     Log(text, what);
                     Heard(KeyName, text, what, false);
-                    bool ok = !what.StartsWith("no ");
+                    bool ok = !Lang.Fail(what);
                     if (ok) st.Save(Path.Combine(dir, "estado.txt"));
                     Feedback("“" + text.Trim() + "” → " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), ok ? 5000 : 7000);
                 }));
@@ -6212,7 +6333,7 @@ Puerto=8765
                 }
                 foreach (var a in st.Addons) if (a.Rarity == "nota") nameLines.Add(Tuple.Create("? " + a.Name + (st.IsDoubt(a) ? " (?)" : ""), st.IsDoubt(a) ? Color.FromArgb(240, 190, 60) : Color.Gainsboro));
                 if (st.Offering != null && st.Offering.Rarity == "nota")
-                    nameLines.Add(Tuple.Create("✦ ofrenda: " + st.Offering.Name + (st.IsDoubt(st.Offering) ? " (?)" : ""), st.IsDoubt(st.Offering) ? Color.FromArgb(240, 190, 60) : Color.Gainsboro));
+                    nameLines.Add(Tuple.Create(L("✦ ofrenda: ", "✦ offering: ") + st.Offering.Name + (st.IsDoubt(st.Offering) ? " (?)" : ""), st.IsDoubt(st.Offering) ? Color.FromArgb(240, 190, 60) : Color.Gainsboro));
 
                 int lh = fSmall.Height + 2, namesW = 0;
                 foreach (var nl in nameLines) namesW = Math.Max(namesW, Math.Min(M(nl.Item1, fSmall).Width, 340));
@@ -6262,7 +6383,7 @@ Puerto=8765
                 for (int i = 0; i < st.Pick.Count; i++)
                     pickItems.Add(new Item { R = new Rectangle(i * (A + 8), y, A, A), E = st.Pick[i], Num = i + 1 });
                 rowW = st.Pick.Count * (A + 8) - 8;
-                string pt = "¿cuál? " + string.Join(" · ", st.Pick.Select((x, i) => (i + 1) + " " + DName(x)));
+                string pt = L("¿cuál? ", "which one? ") + string.Join(" · ", st.Pick.Select((x, i) => (i + 1) + " " + DName(x)));
                 var ps = M(pt, fSmall);
                 int pw = Math.Min(ps.Width, 560);
                 pickText = new TextItem { T = pt, F = fSmall, C = Color.FromArgb(240, 190, 60), P = new Point(0, y + A + 6), W = pw };
@@ -6285,17 +6406,17 @@ Puerto=8765
             blockW = W;
 
             var bottom = new List<Tuple<string, Color>>();
-            if (talking) bottom.Add(Tuple.Create("● Escuchando…", Color.FromArgb(255, 80, 80)));
+            if (talking) bottom.Add(Tuple.Create(L("● Escuchando…", "● Listening…"), Color.FromArgb(255, 80, 80)));
             else if (busy) bottom.Add(Tuple.Create("… Procesando", Color.Khaki));
             if (statusLine.Length > 0) bottom.Add(Tuple.Create(statusLine, Color.Orange));
             if (heardLine.Length > 0) bottom.Add(Tuple.Create(heardLine, Color.FromArgb(160, 160, 175)));
             if (feedback.Length > 0) bottom.Add(Tuple.Create(feedback, feedbackColor));
             // siempre a la vista: si estas en una sala (linea chica, se apaga desde Sala compartida)
             string rl = RoomLine();
-            if (rl != null) bottom.Add(Tuple.Create(rl, roomStatus.StartsWith("conectad") || !ManualRoom ? Color.FromArgb(110, 190, 125) : Color.FromArgb(220, 170, 90)));
+            if (rl != null) bottom.Add(Tuple.Create(rl, roomStatus == Lang.L("conectado", "connected") || !ManualRoom ? Color.FromArgb(110, 190, 125) : Color.FromArgb(220, 170, 90)));
             if (!any && ktext == null && bottom.Count == 0 && !helpShown)
                 if (TypeKeyText.Length > 0 || voice)
-                    bottom.Add(Tuple.Create((voice ? KeyName + " hablar" + (TypeKeyText.Length > 0 ? " · " : "") : "") + (TypeKeyText.Length > 0 ? TypeKeyText + " anotar" : ""), dim));
+                    bottom.Add(Tuple.Create((voice ? KeyName + L(" hablar", " talk") + (TypeKeyText.Length > 0 ? " · " : "") : "") + (TypeKeyText.Length > 0 ? TypeKeyText + L(" anotar", " add") : ""), dim));
 
             int contentW = blockW;
             // ayuda (mientras se mantiene la tecla de ayuda)
@@ -6491,6 +6612,13 @@ Puerto=8765
         }
 
         bool restartingForUpdate;
+        public void RestartApp()
+        {
+            FlushCfg();
+            restartingForUpdate = true;
+            try { Process.Start(Application.ExecutablePath, "--reinicio " + Process.GetCurrentProcess().Id); } catch { }
+            Close();
+        }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
@@ -6516,6 +6644,7 @@ Puerto=8765
         static void Main(string[] args)
         {
             string dir = AppDomain.CurrentDomain.BaseDirectory;
+            try { Lang.Init(Cfg.Load(Path.Combine(dir, "config.ini")).Get("IdiomaApp", "auto")); } catch { }
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
             ServicePointManager.DefaultConnectionLimit = 16; // la sala tiene una conexion abierta escuchando todo el tiempo
             if (args.Length >= 3 && args[0] == "--desc")
@@ -6653,7 +6782,7 @@ Puerto=8765
             string mxName = args.Length >= 1 && args[0] == "--prueba" ? "DbdOverlay_Prueba_" + (dir.GetHashCode() & 0x7fffffff) : "DbdOverlay_SingleInstance";
             using (var mx = new Mutex(true, mxName, out created))
             {
-                if (!created) { MessageBox.Show("DBD Overlay ya está abierto (mirá el ícono rojo junto al reloj).", "DBD Overlay"); return; }
+                if (!created) { MessageBox.Show(Lang.L("Callouts in the Fog ya está abierto (mirá el ícono del gancho junto al reloj).", "Callouts in the Fog is already running (look for the hook icon next to the clock)."), Overlay.AppName); return; }
                 Application.EnableVisualStyles();
                 Application.Run(new Overlay(dir));
             }

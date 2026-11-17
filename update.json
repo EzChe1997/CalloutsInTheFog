@@ -1,8 +1,8 @@
 {
-    "version":  40,
-    "notes":  "La lista ya no queda tapada por DBD; las listas se igualan al formarse el grupo (gana la más nueva)",
-    "date":  "2026-11-16 22:42",
+    "version":  41,
+    "notes":  "Ahora se llama Callouts in the Fog. Disponible en inglés (Configuración → General → Idioma de la app; por defecto el de Windows) con comandos en inglés escritos o por voz.",
+    "date":  "2026-11-17 00:43",
     "files":  {
-                  "DbdOverlay.exe":  "3c77f8fa3ed00c9495514c6282a53d98331f3261134558b017d39cbfe678b947"
+                  "DbdOverlay.exe":  "d63bad5c3bc57e72666b62e1fd5d569bc34920ed23581b60c67546d55d078819"
               }
 }
