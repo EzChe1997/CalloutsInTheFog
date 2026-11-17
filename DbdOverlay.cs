@@ -21,7 +21,7 @@ namespace DbdOverlay
     // IdiomaApp=auto (el de Windows), es o en. Los textos van en el codigo: L("español", "english").
     static class Lang
     {
-        public static bool En;
+        public static bool En, FirstRun;
         public static string Setting = "auto";
         public static void Init(string v)
         {
@@ -2508,8 +2508,8 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 41;
-        public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
+        public const int AppVersion = 42;
+        public const string Base = "https://raw.githubusercontent.com/EzChe1997/CalloutsInTheFog/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
 
@@ -2525,7 +2525,7 @@ Puerto=8765
                 string ub = Base;
                 try
                 {
-                    var req = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/EzChe1997/dbd-killer-overlay/commits/main");
+                    var req = (HttpWebRequest)WebRequest.Create("https://api.github.com/repos/EzChe1997/CalloutsInTheFog/commits/main");
                     req.UserAgent = "DbdOverlay"; req.Accept = "application/vnd.github.sha"; req.Timeout = 10000;
                     req.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
                     string shaC;
@@ -2737,29 +2737,30 @@ Puerto=8765
                 A(HelpKeyName + " (hold)   this help", cmd, false);
                 if (!voice) A("Voice is not installed (optional): Settings → Voice", note, false);
                 A(RoomText() + (room != null ? " · everyone sees the same list" : ""), note, false);
-                A("Settings: double-click the hook icon next to the clock", note, false);
+                A("Settings: double-click the hook icon in the taskbar", note, false);
                 return l;
             }
-            A("Mantené " + KeyName + " y decí:", head, true);
-            A("\"tiene Pain Resonance y Deadlock\"   anota perks (máx. 4)", cmd, false);
-            A("\"es la Huntress\"   killer (no se muestra, ayuda con los addons)", cmd, false);
-            A("\"addon que ciega\"   addon por lo que hace (máx. 2); si duda: \"el dos\" o \"ninguno\"", cmd, false);
-            A("\"quitar Deadlock\" · \"quitar addons\"", cmd, false);
-            A("\"no, borrá eso\"   deshace lo último; al repetir no elige lo mismo", cmd, false);
-            A("\"tiene el perk ...\"   busca solo entre perks", cmd, false);
-            A("\"sí\"   cuando pregunta (¿...?): lo anota y aprende cómo lo dijiste", cmd, false);
-            A("\"ofrenda Ebony Mori\" · \"trajo un mori\" · \"ofrenda de mapa de ...\"   ofrenda (una)", cmd, false);
-            A("\"creo que tiene Deadlock\"   sospecha (se ve a medias con ?)", cmd, false);
-            A("\"confirmado\" · \"descartado\"   la última sospecha (o \"confirmado Deadlock\")", cmd, false);
-            A("\"apodo grimi es Grim Embrace\"   enseñar un apodo", cmd, false);
-            A("\"mostrar nombres\" · \"ocultar nombres\"", cmd, false);
+            A("Escribir: " + TypeKeyText, head, true);
+            A("el nombre (o una parte) de un perk, addon, ofrenda, killer o mapa, y Enter", cmd, false);
+            A("\"noed?\" o Shift+Enter   lo anota como sospecha (?)", cmd, false);
+            A("\"addon 15 lento\" · \"perk aura gancho\"   busca por lo que hace", cmd, false);
+            A("\"quitar …\" · \"cambiar …\" · \"duda …\" · \"sala …\"", cmd, false);
+            if (voice)
+            {
+                A("Mantené " + KeyName + " y decí:", head, true);
+                A("\"tiene Pain Resonance y Deadlock\"   anota perks (máx. 4)", cmd, false);
+                A("\"es la Huntress\"   killer (ayuda con los addons)", cmd, false);
+                A("\"addon que ciega\"   addon por lo que hace (máx. 2); si duda: \"el dos\" o \"ninguno\"", cmd, false);
+                A("\"quitar Deadlock\" · \"no, borrá eso\" · \"sí\" cuando pregunta (¿...?)", cmd, false);
+                A("\"ofrenda Ebony Mori\" · \"creo que tiene Deadlock\" (sospecha) · \"confirmado\" · \"descartado\"", cmd, false);
+                A("\"apodo grimi es Grim Embrace\" · \"mostrar nombres\" · \"ocultar nombres\"", cmd, false);
+            }
             A("Teclas", head, true);
             A(ClearKeyName + " (mantener 1 s)   borrar todo · un toque después = deshacer", cmd, false);
             A(HelpKeyName + " (mantener)   esta ayuda", cmd, false);
-            A(TypeKeyText + "   escribir lo que viste (o \"addon 15 lento\", \"quitar …\", \"sala …\")", cmd, false);
-            if (!voice) A("Esta PC no tiene Whisper (solo ver): Configuración → Voz → \"Instalar Whisper\"", Color.Orange, false);
+            if (!voice) A("La voz no está instalada (es opcional): Configuración → Voz", note, false);
             A(RoomText() + (room != null ? " · todos ven lo mismo" : ""), note, false);
-            A("Configuración: doble clic en el ícono del gancho junto al reloj", note, false);
+            A("Configuración: doble clic en el ícono del gancho en la barra de tareas", note, false);
             return l;
         }
         string statusLine = "";
@@ -3031,6 +3032,18 @@ Puerto=8765
                   "\r\nteclas: hablar=" + KeyName + " borrar=" + cfg.Get("TeclaLimpiar", "Shift+G") + " ayuda=" + cfg.Get("TeclaAyuda", "Shift+H") +
                   " · microfono=" + cfg.Get("Microfono", "") + "\r\nestado cargado: " + st.Describe());
             SetupTray();
+            if (GifOut != null)
+            {
+                var gt = new System.Windows.Forms.Timer { Interval = 1500 };
+                gt.Tick += (s, e) => { gt.Stop(); try { MakeGifs(); } catch (Exception ex) { File.WriteAllText(Path.Combine(GifOut, "error.txt"), ex.ToString()); } Environment.Exit(0); };
+                gt.Start();
+            }
+            if (Lang.FirstRun && !Preview && cfg.Get("GuiaVista", "no") != "si")
+            {
+                var wt = new System.Windows.Forms.Timer { Interval = 800 };
+                wt.Tick += (s, e) => { wt.Stop(); wt.Dispose(); ShowWelcome(); };
+                wt.Start();
+            }
             foreach (var si in StatusIcons) GetIcon(si.Item2); // iconos de estados: se bajan una vez
             if (!Preview) // --vista: solo dibuja (sin voz, sin sala, sin Steam) para probar el aspecto
             {
@@ -5450,7 +5463,7 @@ Puerto=8765
                 int ny = 96;
                 foreach (var p in Pages)
                 {
-                    var l = new DNav { Text = PageLabel(p), Bounds = new Rectangle(0, ny, 159, 40), Font = Dbd.Head(11.5f), BackColor = Dbd.Side };
+                    var l = new DNav { Text = PageLabel(p), Tag = p, Bounds = new Rectangle(0, ny, 159, 40), Font = Dbd.Head(11.5f), BackColor = Dbd.Side };
                     string pp = p;
                     l.Click += (s, e) => ShowPage(pp);
                     nav.Controls.Add(l); navItems.Add(l);
@@ -5475,7 +5488,7 @@ Puerto=8765
             {
                 if (Array.IndexOf(Pages, page) < 0) page = "Lista";
                 cur = page;
-                foreach (var l in navItems) { l.Selected = l.Text == page; l.Invalidate(); }
+                foreach (var l in navItems) { l.Selected = (string)l.Tag == page; l.Invalidate(); }
                 body.SuspendLayout();
                 body.AutoScrollPosition = Point.Empty;
                 var old = body.Controls.Cast<Control>().ToList();
@@ -5731,6 +5744,7 @@ Puerto=8765
                 Buttons(B(L("Editar apodos", "Edit nicknames"), () => { try { ov.st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(ov.dir, "apodos.txt") + "\""); } catch { } }),
                         B(L("Editar config.ini (avanzado)", "Edit config.ini (advanced)"), () => { ov.FlushCfg(); try { Process.Start("notepad.exe", "\"" + Path.Combine(ov.dir, "config.ini") + "\""); } catch { } }));
                 Note(L("Los apodos son nombres alternativos para perks, addons o killers (por ejemplo \"ruina\" para Hex: Ruin).", "Nicknames are alternative names for perks, add-ons or killers (for example \"ruin\" for Hex: Ruin)."));
+                Buttons(B(L("Ver la guía de la primera vez", "Show the first-time guide"), () => ov.ShowWelcome()));
                 Title(L("Apariencia", "Appearance"));
                 Buttons(B(L("Volver la apariencia a la de fábrica", "Reset the appearance to defaults"), () =>
                 {
@@ -5740,6 +5754,344 @@ Puerto=8765
                     ov.Feedback(L("apariencia de fábrica", "default appearance"), Color.Silver, 3000);
                 }));
             }
+        }
+
+        // ---- guia de la primera vez: 3 pasos (anotar, compartir, mapas/ayuda). Sale sola la primera vez y desde Configuracion -> General.
+        WelcomeWindow welcomeWin;
+        public void ShowWelcome()
+        {
+            if (welcomeWin != null && !welcomeWin.IsDisposed) { welcomeWin.Activate(); return; }
+            welcomeWin = new WelcomeWindow(this);
+            welcomeWin.FormClosed += (s, e) => { SetCfg("GuiaVista", "si"); welcomeWin = null; };
+            welcomeWin.Show();
+            welcomeWin.Activate();
+        }
+
+        class WelcomeWindow : Form
+        {
+            readonly Overlay ov;
+            int step;
+            readonly Label title, body;
+            readonly PictureBox pic;
+            readonly Button back, next, tryIt;
+            readonly Image[] gifs = new Image[3];
+            [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int v, int size);
+
+            // titulo y una o dos lineas: lo demas lo muestra el GIF
+            string[][] Steps()
+            {
+                string t = ov.TypeKeyText, h = ov.HelpKeyName;
+                if (Lang.En) return new[] {
+                    new[] { "Write down what you see",
+                        t + ", a few letters, Enter. Don't know the name? Search by what it does: \"addon 15 slow\". Add \"?\" to mark a guess (\"noed?\")." },
+                    new[] { "All four see it",
+                        "Steam party: automatic. Solo queue: type \"room new\" and paste the code in the lobby chat; the others type \"room\" + the code." },
+                    new[] { "Maps, help and settings",
+                        "\"map coal\" shows the callout map · hold " + h + " for every command · double-click the hook icon in the taskbar for settings." } };
+                return new[] {
+                    new[] { "Anotá lo que ves",
+                        t + ", unas letras, Enter. ¿No sabés el nombre? Buscalo por lo que hace: \"addon 15 lento\". Con \"?\" queda como sospecha (\"noed?\")." },
+                    new[] { "Lo ven los cuatro",
+                        "Grupo de Steam: automático. Con randoms: escribí \"sala nueva\" y pegá el código en el chat del lobby; los demás escriben \"sala\" + el código." },
+                    new[] { "Mapas, ayuda y ajustes",
+                        "\"mapa coal\" muestra el plano · mantené " + h + " para ver todos los comandos · doble clic en el ícono del gancho en la barra de tareas para la configuración." } };
+            }
+
+            static Image LoadGif(string name)
+            {
+                try
+                {
+                    var s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
+                    return s != null ? Image.FromStream(s) : null; // el stream queda abierto: el GIF lo necesita para animarse
+                }
+                catch { return null; }
+            }
+
+            public WelcomeWindow(Overlay o)
+            {
+                ov = o;
+                Text = AppName;
+                FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false; MinimizeBox = false;
+                StartPosition = FormStartPosition.CenterScreen;
+                ClientSize = new Size(GW + 64, 580);
+                BackColor = Dbd.Bg; ForeColor = Dbd.Fg; Font = new Font("Segoe UI", 10.5f);
+                DoubleBuffered = true;
+                if (ov.trayRed != null) Icon = ov.trayRed;
+                string lang = Lang.En ? "en" : "es";
+                for (int i = 0; i < 3; i++) gifs[i] = LoadGif("guia-" + lang + "-" + (i + 1) + ".gif");
+                title = new Label { AutoSize = false, Bounds = new Rectangle(32, 112, GW, 32), Font = Dbd.Head(17f), ForeColor = Dbd.Fg, UseMnemonic = false };
+                pic = new PictureBox { Bounds = new Rectangle(32, 150, GW, GH), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black };
+                body = new Label { AutoSize = false, Bounds = new Rectangle(32, 150 + GH + 12, GW, 46), ForeColor = Color.FromArgb(200, 194, 188), UseMnemonic = false, BackColor = Color.Transparent };
+                back = MakeBtn(L("Anterior", "Back"), () => Go(step - 1));
+                next = MakeBtn("", () => { if (step < 2) Go(step + 1); else Close(); });
+                tryIt = MakeBtn(L("Probar ahora", "Try it now"), () => ov.OpenTypeBox());
+                Controls.AddRange(new Control[] { title, pic, body, back, next, tryIt });
+                Go(0);
+            }
+
+            Button MakeBtn(string t, Action a)
+            {
+                var b = new Button { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlatStyle = FlatStyle.Flat, BackColor = Dbd.Ctl, ForeColor = Dbd.Fg,
+                                     Padding = new Padding(12, 4, 12, 4), Cursor = Cursors.Hand, Font = Dbd.Head(10.5f), UseMnemonic = false, Text = t.ToUpperInvariant() };
+                b.FlatAppearance.BorderColor = Color.FromArgb(96, 20, 28);
+                b.FlatAppearance.MouseOverBackColor = Dbd.CtlHi;
+                b.FlatAppearance.MouseDownBackColor = Dbd.Acc;
+                b.Click += (s, e) => a();
+                return b;
+            }
+
+            public void Go(int s)
+            {
+                step = Math.Max(0, Math.Min(2, s));
+                var st = Steps()[step];
+                title.Text = st[0].ToUpperInvariant();
+                body.Text = st[1];
+                pic.Image = gifs[step];
+                pic.Visible = gifs[step] != null;
+                // sin GIF (no deberia pasar): el texto ocupa su lugar
+                body.Top = pic.Visible ? pic.Bottom + 12 : pic.Top;
+                back.Visible = step > 0;
+                tryIt.Visible = step == 0;
+                next.Text = (step < 2 ? L("Siguiente", "Next") : L("Empezar", "Let's go")).ToUpperInvariant();
+                next.BackColor = step < 2 ? Dbd.Ctl : Dbd.Acc;
+                int by = ClientSize.Height - 54;
+                next.Location = new Point(ClientSize.Width - 32 - next.PreferredSize.Width, by);
+                back.Location = new Point(next.Left - 8 - back.PreferredSize.Width, by);
+                tryIt.Location = new Point(32, by);
+                Invalidate();
+                next.Focus();
+            }
+
+            protected override void OnHandleCreated(EventArgs e)
+            {
+                base.OnHandleCreated(e);
+                try { int on = 1; if (DwmSetWindowAttribute(Handle, 20, ref on, 4) != 0) DwmSetWindowAttribute(Handle, 19, ref on, 4); } catch { }
+            }
+
+            protected override void OnFormClosed(FormClosedEventArgs e)
+            {
+                pic.Image = null;
+                foreach (var g in gifs) if (g != null) g.Dispose();
+                base.OnFormClosed(e);
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                var glow = new Rectangle(0, ClientSize.Height - 140, ClientSize.Width, 140);
+                using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(glow.X, glow.Y - 2, glow.Width, glow.Height + 4), Color.FromArgb(0, 80, 6, 12), Color.FromArgb(90, 80, 6, 12), 90f)) g.FillRectangle(br, glow);
+                TextRenderer.DrawText(g, L("BIENVENIDO A", "WELCOME TO"), Dbd.Head(10f), new Point(32, 22), Dbd.Dim, TextFormatFlags.NoPrefix);
+                TextRenderer.DrawText(g, "CALLOUTS IN THE FOG", Dbd.Head(22f), new Point(30, 40), Dbd.AccHi, TextFormatFlags.NoPrefix);
+                for (int i = 0; i < 3; i++)
+                {
+                    var d = Dbd.Diamond(ClientSize.Width - 92 + i * 26, 40, 7);
+                    if (i == step) using (var b = new SolidBrush(Dbd.AccHi)) g.FillPolygon(b, d);
+                    else if (i < step) using (var b = new SolidBrush(Dbd.Acc)) g.FillPolygon(b, d);
+                    using (var p = new Pen(i <= step ? Dbd.AccHi : Dbd.Off, 1.5f)) g.DrawPolygon(p, d);
+                }
+                TextRenderer.DrawText(g, (step + 1) + " / 3", Dbd.Cond(9f), new Point(ClientSize.Width - 96, 56), Dbd.Dim, TextFormatFlags.NoPrefix);
+                using (var p = new Pen(Dbd.Line)) g.DrawLine(p, 32, 96, ClientSize.Width - 32, 96);
+                using (var p = new Pen(Dbd.Acc, 2f)) g.DrawLine(p, 32, 96, 32 + (ClientSize.Width - 64) * (step + 1) / 3, 96);
+                using (var p = new Pen(Dbd.Line)) g.DrawRectangle(p, pic.Left - 1, pic.Top - 1, pic.Width + 1, pic.Height + 1);
+            }
+        }
+
+        // ---- GIFs de la guia: `DbdOverlay.exe --gifs carpeta` (en una copia con su config.ini) dibuja cuadro por cuadro lo
+        // que hace la app (cuadro de escribir, lista, mapa, ayuda) y deja PNGs + list.txt para armar el GIF con ffmpeg.
+        // No corre nunca al jugar.
+        public static string GifOut;
+        const int GW = 700, GH = 300;
+        List<Tuple<Bitmap, int>> gifFrames = new List<Tuple<Bitmap, int>>();
+        TypeBox gifBox; bool gifBoxOn; string gifKey, gifMapFile;
+        // pantalla partida (paso 2): lo que ve cada uno
+        bool gifSplit; Bitmap gifL, gifR; string gifKeyL, gifTypedL, gifKeyR, gifTypedR;
+        static Bitmap gifBg;
+
+        Bitmap CapOverlay()
+        {
+            Relayout();
+            int w = Math.Max(1, Width), h = Math.Max(1, Height);
+            var bmp = new Bitmap(w, h);
+            using (var g = Graphics.FromImage(bmp)) OnPaint(new PaintEventArgs(g, new Rectangle(0, 0, w, h)));
+            bmp.MakeTransparent(KeyColor);
+            return bmp;
+        }
+
+        static Bitmap GifBg()
+        {
+            if (gifBg != null) return gifBg;
+            gifBg = new Bitmap(GW, GH);
+            using (var g = Graphics.FromImage(gifBg))
+            {
+                using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(0, 0, GW, GH), Color.FromArgb(38, 40, 46), Color.FromArgb(10, 10, 13), 90f))
+                    g.FillRectangle(br, 0, 0, GW, GH);
+                var rnd = new Random(7);
+                for (int i = 0; i < 30; i++)
+                {
+                    int rw = rnd.Next(140, 340), rh = rnd.Next(40, 110), x = rnd.Next(-120, GW), y = rnd.Next(GH / 4, GH);
+                    using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+                    {
+                        path.AddEllipse(x, y, rw, rh);
+                        using (var pb = new System.Drawing.Drawing2D.PathGradientBrush(path) { CenterColor = Color.FromArgb(rnd.Next(12, 30), 200, 205, 215), SurroundColors = new[] { Color.FromArgb(0, 200, 205, 215) } })
+                            g.FillPath(pb, path);
+                    }
+                }
+            }
+            return gifBg;
+        }
+
+        static void GifKeycap(Graphics g, string k, int x, int y)
+        {
+            var f = Dbd.Head(13f);
+            var sz = TextRenderer.MeasureText(k, f);
+            var r = new Rectangle(x, y, sz.Width + 18, sz.Height + 10);
+            using (var b = new SolidBrush(Color.FromArgb(235, 26, 20, 22))) g.FillRectangle(b, r);
+            using (var p = new Pen(Dbd.AccHi, 2f)) g.DrawRectangle(p, r);
+            TextRenderer.DrawText(g, k, f, r, Dbd.Fg, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        }
+        // lo escrito, como en el cuadro (para la pantalla partida, donde el cuadro entero no entra)
+        static void GifTyped(Graphics g, string t, int x, int y, int w)
+        {
+            var r = new Rectangle(x, y, w, 30);
+            using (var b = new SolidBrush(Color.FromArgb(32, 32, 42))) g.FillRectangle(b, r);
+            using (var p = new Pen(Color.FromArgb(90, 90, 105))) g.DrawRectangle(p, r);
+            TextRenderer.DrawText(g, t + "|", new Font("Segoe UI", 12f), new Point(x + 6, y + 4), Color.WhiteSmoke, TextFormatFlags.NoPrefix);
+        }
+        // la lista va arriba a la derecha (como en el juego); si no entra, se achica
+        static void GifPlace(Graphics g, Bitmap b, int right, int top, int maxW, int maxH)
+        {
+            double s = Math.Min(1.0, Math.Min((double)maxW / b.Width, (double)maxH / b.Height));
+            int w = (int)(b.Width * s), h = (int)(b.Height * s);
+            g.DrawImage(b, right - w, top, w, h);
+        }
+
+        void Shot(int n)
+        {
+            var c = new Bitmap(GW, GH);
+            using (var g = Graphics.FromImage(c))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.DrawImage(GifBg(), 0, 0);
+                if (gifSplit)
+                {
+                    int half = GW / 2;
+                    using (var p = new Pen(Color.FromArgb(120, 214, 32, 44), 2f)) g.DrawLine(p, half, 0, half, GH);
+                    TextRenderer.DrawText(g, L("PANTALLA DE MEG", "MEG'S SCREEN"), Dbd.Head(11f), new Point(14, 10), Dbd.Dim, TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(g, L("PANTALLA DE DWIGHT", "DWIGHT'S SCREEN"), Dbd.Head(11f), new Point(half + 14, 10), Dbd.Dim, TextFormatFlags.NoPrefix);
+                    if (gifL != null) GifPlace(g, gifL, half - 12, 38, half - 24, GH - 50);
+                    if (gifR != null) GifPlace(g, gifR, GW - 12, 38, half - 24, GH - 50);
+                    if (gifTypedL != null) GifTyped(g, gifTypedL, 14, GH - 92, 150);
+                    if (gifTypedR != null) GifTyped(g, gifTypedR, half + 14, GH - 92, 150);
+                    if (gifKeyL != null) GifKeycap(g, gifKeyL, 14, GH - 50);
+                    if (gifKeyR != null) GifKeycap(g, gifKeyR, half + 14, GH - 50);
+                }
+                else
+                {
+                    using (var ovb = CapOverlay()) GifPlace(g, ovb, GW - 14, 14, helpShown ? GW - 28 : GW - 380, GH - 28);
+                    if (gifMapFile != null)
+                    {
+                        var img = MapImage(gifMapFile);
+                        if (img != null)
+                        {
+                            int mh = GH - 28, mw = Math.Min(330, mh * img.Width / Math.Max(1, img.Height));
+                            mh = mw * img.Height / Math.Max(1, img.Width);
+                            g.DrawImage(img, 16, 14, mw, mh);
+                            using (var p = new Pen(Color.FromArgb(70, 70, 90))) g.DrawRectangle(p, 16, 14, mw, mh);
+                        }
+                    }
+                    if (gifBoxOn)
+                    {
+                        using (var bb = new Bitmap(gifBox.Width, gifBox.Height))
+                        {
+                            gifBox.DrawToBitmap(bb, new Rectangle(0, 0, bb.Width, bb.Height));
+                            double s = Math.Min(340.0 / bb.Width, (GH - 74.0) / bb.Height);
+                            g.DrawImage(bb, 16, 14, (int)(bb.Width * s), (int)(bb.Height * s));
+                        }
+                    }
+                    if (gifKey != null) GifKeycap(g, gifKey, gifMapFile != null ? 360 : 16, GH - 50);
+                }
+            }
+            gifFrames.Add(Tuple.Create(c, n));
+        }
+
+        void GifSave(string name)
+        {
+            string d = Path.Combine(GifOut, name);
+            Directory.CreateDirectory(d);
+            var sb = new StringBuilder();
+            for (int i = 0; i < gifFrames.Count; i++)
+            {
+                string f = i.ToString("000") + ".png";
+                gifFrames[i].Item1.Save(Path.Combine(d, f));
+                sb.Append("file '" + f + "'\nduration " + (gifFrames[i].Item2 * 0.1).ToString("0.0", CultureInfo.InvariantCulture) + "\n");
+            }
+            sb.Append("file '" + (gifFrames.Count - 1).ToString("000") + ".png'\n");
+            File.WriteAllText(Path.Combine(d, "list.txt"), sb.ToString());
+            foreach (var f in gifFrames) f.Item1.Dispose();
+            gifFrames.Clear();
+        }
+
+        void GifReset() { st.Clear(); feedback = ""; helpShown = false; gifBoxOn = false; gifKey = gifMapFile = null; gifSplit = false; gifKeyL = gifTypedL = gifKeyR = gifTypedR = null; if (gifBox != null) gifBox.Hide(); }
+
+        // Shift+T, escribir letra por letra, Enter: queda anotado
+        void GifType(string text, Entry e)
+        {
+            gifKey = TypeKeyText; Shot(6);
+            gifBox.Location = new Point(-6000, -6000);
+            gifBox.Open(); gifBox.Location = new Point(-6000, -6000); gifBoxOn = true; gifKey = null; Shot(3);
+            for (int i = 1; i <= text.Length; i++) { gifBox.SetText(text.Substring(0, i)); Application.DoEvents(); Shot(i == text.Length ? 12 : 2); }
+            gifKey = "Enter"; Shot(4);
+            gifBoxOn = false; gifBox.Hide(); gifKey = null;
+            if (e != null) { string what = st.AddPicked(e, false); Feedback("⌨ " + what, Color.FromArgb(150, 220, 150), int.MaxValue / 2); }
+        }
+
+        void MakeGifs()
+        {
+            voice = false; // como la mayoria: sin Whisper (la ayuda no muestra los comandos de voz)
+            string lang = Lang.En ? "en" : "es";
+            gifBox = new TypeBox(this) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            var noed = cat.Perks.First(p => p.Name.Contains("No One Escapes Death"));
+            var pain = cat.Perks.First(p => p.Name.Contains("Pain Resonance"));
+            var bbq = cat.Perks.First(p => p.Name.Contains("Barbecue"));
+
+            // 1) anotar
+            GifReset(); Shot(8);
+            GifType("noed", noed); Shot(14); feedback = "";
+            GifType("pain res", pain); Shot(22);
+            GifSave("guia-" + lang + "-1");
+
+            // 2) lo ven los cuatro: Meg anota y le aparece a Dwight; despues al reves
+            GifReset(); gifSplit = true;
+            gifL = CapOverlay(); gifR = CapOverlay(); Shot(8);
+            gifKeyL = TypeKeyText; Shot(5); gifKeyL = null;
+            foreach (var s in new[] { "n", "no", "noe", "noed" }) { gifTypedL = s; Shot(2); }
+            Shot(6); gifKeyL = "Enter"; Shot(4); gifKeyL = null; gifTypedL = null;
+            string w1 = st.AddPicked(noed, false);
+            Feedback("⌨ " + w1, Color.FromArgb(150, 220, 150), int.MaxValue / 2); gifL = CapOverlay();
+            Feedback("Meg: " + w1, Color.FromArgb(130, 190, 255), int.MaxValue / 2); gifR = CapOverlay();
+            Shot(18);
+            feedback = ""; gifL = CapOverlay(); gifR = CapOverlay(); Shot(4);
+            gifKeyR = TypeKeyText; Shot(5); gifKeyR = null;
+            foreach (var s in new[] { "b", "bb", "bbq" }) { gifTypedR = s; Shot(2); }
+            Shot(6); gifKeyR = "Enter"; Shot(4); gifKeyR = null; gifTypedR = null;
+            string w2 = st.AddPicked(bbq, false);
+            Feedback("Dwight: " + w2, Color.FromArgb(130, 190, 255), int.MaxValue / 2); gifL = CapOverlay();
+            Feedback("⌨ " + w2, Color.FromArgb(150, 220, 150), int.MaxValue / 2); gifR = CapOverlay();
+            Shot(26);
+            GifSave("guia-" + lang + "-2");
+
+            // 3) mapa y ayuda
+            GifReset(); st.AddPicked(noed, false); st.AddPicked(pain, false); Shot(6);
+            var coal = cat.MapFiles.Keys.FirstOrDefault(k => k == "Coal Tower") ?? cat.MapFiles.Keys.First(k => k.Contains("Coal"));
+            GifType(L("mapa coal", "map coal"), null);
+            gifMapFile = cat.MapFiles[coal][0];
+            for (int i = 0; i < 40 && MapImage(gifMapFile) == null; i++) { Application.DoEvents(); Thread.Sleep(250); }
+            Shot(24);
+            gifKey = HelpKeyName; Shot(3); gifMapFile = null; st.Clear(); feedback = ""; helpShown = true; Shot(34);
+            helpShown = false; gifKey = null; Shot(6);
+            GifSave("guia-" + lang + "-3");
         }
 
         void SetupTray()
@@ -6644,6 +6996,7 @@ Puerto=8765
         static void Main(string[] args)
         {
             string dir = AppDomain.CurrentDomain.BaseDirectory;
+            Lang.FirstRun = !File.Exists(Path.Combine(dir, "config.ini")); // antes de que Cfg.Load lo cree
             try { Lang.Init(Cfg.Load(Path.Combine(dir, "config.ini")).Get("IdiomaApp", "auto")); } catch { }
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
             ServicePointManager.DefaultConnectionLimit = 16; // la sala tiene una conexion abierta escuchando todo el tiempo
@@ -6756,6 +7109,14 @@ Puerto=8765
                 File.WriteAllText(args[1] + ".out", sb.ToString(), Encoding.UTF8);
                 return;
             }
+            if (args.Length >= 2 && args[0] == "--gifs")
+            {
+                // --gifs carpeta : cuadros de los GIFs de la guia (en una copia con config propia, ver MakeGifs)
+                Overlay.Preview = true; Overlay.GifOut = args[1];
+                Application.EnableVisualStyles();
+                Application.Run(new Overlay(dir));
+                return;
+            }
             if (args.Length >= 1 && args[0] == "--vista")
             {
                 // copia de prueba en otra carpeta: se puede abrir con el overlay real andando
@@ -6782,7 +7143,7 @@ Puerto=8765
             string mxName = args.Length >= 1 && args[0] == "--prueba" ? "DbdOverlay_Prueba_" + (dir.GetHashCode() & 0x7fffffff) : "DbdOverlay_SingleInstance";
             using (var mx = new Mutex(true, mxName, out created))
             {
-                if (!created) { MessageBox.Show(Lang.L("Callouts in the Fog ya está abierto (mirá el ícono del gancho junto al reloj).", "Callouts in the Fog is already running (look for the hook icon next to the clock)."), Overlay.AppName); return; }
+                if (!created) { MessageBox.Show(Lang.L("Callouts in the Fog ya está abierto (mirá el ícono del gancho en la barra de tareas).", "Callouts in the Fog is already running (look for the hook icon in the taskbar)."), Overlay.AppName); return; }
                 Application.EnableVisualStyles();
                 Application.Run(new Overlay(dir));
             }

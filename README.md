@@ -26,8 +26,7 @@ This is a fan project, not affiliated with or endorsed by Behaviour Interactive.
 
 1. Download `DbdOverlay.exe` from this repository and put it in its own folder (for example Documents\DbdOverlay).
 2. Open it. Windows may say "Windows protected your PC" because the exe is not code-signed: "More info" → "Run anyway".
-3. A red hook icon appears next to the clock. **Double-click it** for Settings.
-4. The game must be in **Windowed Fullscreen / Borderless** for the overlay to show on top.
+3. A red hook icon appears in the taskbar (it may be hidden under the ^ arrow). **Double-click it** for Settings.
 
 The app updates itself from here and only accepts versions signed by the project.
 

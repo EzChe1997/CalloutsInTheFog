@@ -6,7 +6,7 @@ Callouts in the Fog - lo que ve un sobreviviente, lo saben los cuatro
    (pasa porque el programa no está firmado).
    La primera vez baja la lista de perks/addons de internet (unos segundos).
 
-2) Aparece un ícono rojo con un gancho junto al reloj (puede estar escondido en la flechita ^).
+2) Aparece un ícono rojo con un gancho en la barra de tareas (puede estar escondido en la flechita ^).
    Doble clic: Configuración (todo lo que se puede cambiar). Clic derecho: lo de uso rápido.
 
 3) Ver lo mismo que tus amigos: NO hay que hacer nada.
@@ -31,8 +31,6 @@ Callouts in the Fog - lo que ve un sobreviviente, lo saben los cuatro
 Configuración (lista, mapa, teclas, sala, voz, idioma): doble clic en el ícono.
 Si tu PC es justa: dejá la voz apagada y anotá con Shift+T; la lista y el mapa se pueden mostrar
 solo con el menú ESC abierto (Configuración -> Lista / Mapa).
-Overlay: el juego tiene que estar en "Pantalla completa en ventana" (Windowed Fullscreen / Borderless)
-para que se vea encima.
 
 Actualizaciones: la app se actualiza sola (revisa al abrir, o con clic derecho en el ícono -> "Buscar actualización")
 y se reinicia sin perder la lista. Solo acepta versiones firmadas por quien publica el proyecto.

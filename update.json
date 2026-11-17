@@ -1,8 +1,8 @@
 {
-    "version":  41,
-    "notes":  "Ahora se llama Callouts in the Fog. Disponible en inglés (Configuración → General → Idioma de la app; por defecto el de Windows) con comandos en inglés escritos o por voz.",
-    "date":  "2026-11-17 00:43",
+    "version":  42,
+    "notes":  "Guía de la primera vez con GIFs (también en Configuración → General). Ayuda de Shift+H más clara. Arreglos de la versión en inglés.",
+    "date":  "2026-11-17 01:18",
     "files":  {
-                  "DbdOverlay.exe":  "d63bad5c3bc57e72666b62e1fd5d569bc34920ed23581b60c67546d55d078819"
+                  "DbdOverlay.exe":  "b4dc92fe28ec2795f91f2f47bfbb7e32bbf06d123501c2efb14f6d6f0c8dc776"
               }
 }

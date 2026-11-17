@@ -51,7 +51,7 @@ Copy-Item $exe, (Join-Path $here 'LEEME.txt') $pkg -Force
 Compress-Archive -Path $pkg -DestinationPath (Join-Path $here 'dist\DBD-Overlay.zip') -Force
 
 # 5) Subir a GitHub
-git add -- DbdOverlay.cs DbdOverlay.exe app.ico build.ps1 LEEME.txt README.md update.json update.sig .gitignore .gitattributes publicar.ps1 'Publicar actualizacion.bat'
+git add -- DbdOverlay.cs DbdOverlay.exe app.ico build.ps1 guia LEEME.txt README.md update.json update.sig .gitignore .gitattributes publicar.ps1 'Publicar actualizacion.bat'
 git commit -q -m "Version $ver$(if ($Notes) { ": $Notes" })"
 if (-not $NoPush) { git push -q origin main; if ($LASTEXITCODE) { throw 'No se pudo subir a GitHub (git push falló).' } }
 if ($running) { Get-Process DbdOverlay -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$here\*" } | Stop-Process -Force; Start-Sleep 1; Start-Process $exe }
