@@ -1872,7 +1872,10 @@ Puerto=8765
             }
             catch (Exception ex) { LastError = ex.Message; }
             Running = false;
+            var s = Stopped;
+            if (!stop && s != null) s();
         }
+        public Action Stopped;
 
         void Push(short s) { buf[total % buf.Length] = s; total++; }
 
@@ -2443,7 +2446,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 38;
+        public const int AppVersion = 39;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/dbd-killer-overlay/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2677,7 +2680,7 @@ Puerto=8765
         int micRestartAt = -1;
         NotifyIcon tray;
         Font fTitle, fItem, fSmall;
-        System.Windows.Forms.Timer keyTimer, topTimer;
+
 
 
         // ---- iconos (se bajan de la wiki la primera vez y quedan en iconos\)
@@ -2700,8 +2703,8 @@ Puerto=8765
             mapWin.Set(name, e != null ? e.ActionTag : "", files, MapSize);
             mapWin.Place(cfg.GetInt("MapaX", 20), cfg.GetInt("MapaY", 20));
             mapWin.Opacity = MapOpacity / 100.0;
-            if (!mapWin.Visible) mapWin.Show();
-            SetWindowPos(mapWin.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040);
+            UpdateMapVisibility(cursorShown);
+            if (mapWin.Visible) SetWindowPos(mapWin.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
             mapWin.Invalidate();
             DebugEvent("mapa: " + name);
             if (share && room != null) room.Publish(Stamp(new Dictionary<string, object> { { "map", name } }));
@@ -2947,25 +2950,23 @@ Puerto=8765
                 else DebugEvent("voz apagada desde el menú: sin Whisper, sin micrófono");
                 StartRoom();
                 UpdateRoomMenu();
-                // sala automatica: mira cada 5 s si DBD esta abierto (el vigia de Steam solo vive mientras el juego corre)
-                steamTimer = new System.Windows.Forms.Timer { Interval = 5000 };
-                steamTimer.Tick += (s, e) => SteamTick();
-                steamTimer.Start();
+                // sala automatica: se mira al abrir y cada vez que DBD pasa al frente (el vigia de Steam se cierra solo con el juego)
+                steamAuto = true;
                 SteamTick();
             }
             else voice = true;
 
-            keyTimer = new System.Windows.Forms.Timer { Interval = 25 };
-            keyTimer.Tick += (s, e) => KeyTick();
-            keyTimer.Start();
-            topTimer = new System.Windows.Forms.Timer { Interval = 2000 };
-            topTimer.Tick += (s, e) => { SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); };
-            topTimer.Start();
-
-            // descripcion al pasar el mouse (solo cuando el cursor esta visible: lobby, menu de ESC, fin de partida)
-            hoverTimer = new System.Windows.Forms.Timer { Interval = 100 };
-            hoverTimer.Tick += (s, e) => HoverTick();
-            hoverTimer.Start();
+            // sin relojes fijos: Windows avisa cuando se aprieta una de las teclas, cuando cambia la ventana del frente
+            // y cuando el cursor aparece, desaparece o se mueve. Quieta, la app no hace nada.
+            var hh = Handle;
+            pump = new System.Windows.Forms.Timer();
+            pump.Tick += (s, e) => PumpTick();
+            topLater = new System.Windows.Forms.Timer { Interval = 1500 };
+            topLater.Tick += (s, e) => { topLater.Stop(); TopAll(); };
+            StartKeyWatch();
+            StartWinEvents();
+            HoverTick();
+            Schedule();
 
             // actualizaciones de la app: solo al abrir
             if (Catalog.DataNews.Length > 0) Feedback(Catalog.DataNews, Color.FromArgb(150, 220, 150), 5000);
@@ -3057,6 +3058,7 @@ Puerto=8765
             {
                 if (mic != null) mic.Stop();
                 mic = new Mic();
+                mic.Stopped = () => { try { BeginInvoke((Action)Kick); } catch { } };
                 mic.Start(cfg.Get("Microfono", ""));
                 if (mic.LastError.Length > 0) Feedback("Micrófono: " + mic.LastError, Color.Orange, 8000);
                 DebugEvent("micrófono: " + mic.DeviceName + (mic.LastError.Length > 0 ? " (" + mic.LastError + ")" : ""));
@@ -3268,7 +3270,7 @@ Puerto=8765
         // ---- hover: descripcion del perk/addon/ofrenda bajo el cursor
         [DllImport("user32.dll")] static extern bool GetCursorInfo(ref CURSORINFO ci);
         [StructLayout(LayoutKind.Sequential)] struct CURSORINFO { public int cbSize, flags; public IntPtr hCursor; public int x, y; }
-        System.Windows.Forms.Timer hoverTimer;
+
         HoverTip tip;
         Entry hoverE;
         int hoverSince;
@@ -3292,8 +3294,19 @@ Puerto=8765
             return fgIsDbd;
         }
 
+        // mapa "solo con menu ESC": jugando se oculta (mientras escribis en el cuadro se ve)
+        bool MapMenuOnly { get { return cfg.Get("MapaVisibilidad", "siempre").ToLowerInvariant().StartsWith("menu"); } }
+        void UpdateMapVisibility(bool cursor)
+        {
+            if (mapWin == null) return;
+            bool ok = mapShown != null && !(MapMenuOnly && DbdInFront() && !cursor && !(typeBox != null && typeBox.Visible));
+            if (ok && !mapWin.Visible) { mapWin.Show(); SetWindowPos(mapWin.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040); }
+            else if (!ok && mapWin.Visible) mapWin.Hide();
+        }
+
         void UpdateVisibility(bool cursor)
         {
+            UpdateMapVisibility(cursor);
             bool show = true;
             if (MenuOnly && DbdInFront() && !cursor)
                 // jugando: oculto, salvo mientras hablás o hay un mensaje / ayuda / candidatos para elegir
@@ -3312,7 +3325,9 @@ Puerto=8765
             var ci = new CURSORINFO { cbSize = Marshal.SizeOf(typeof(CURSORINFO)) };
             // en partida DBD esconde el cursor: ahi no se muestra nada (algunos juegos lo "esconden" dejandolo sin imagen)
             bool cursor = GetCursorInfo(ref ci) && (ci.flags & 1) != 0 && ci.hCursor != IntPtr.Zero;
+            cursorShown = cursor;
             UpdateVisibility(cursor);
+            SetMoveHook(cursor && Visible);
             bool ro = Visible && cursor && roomRect.Contains(new Point(ci.x - Left, ci.y - Top));
             if (ro != roomHover) { roomHover = ro; Relayout(); }
             if (Visible && !helpShown && cursor)
@@ -3909,6 +3924,7 @@ Puerto=8765
             if (feedback.StartsWith("⌨ escribiendo")) { feedback = ""; Relayout(); }
             bool hadFocus = GetForegroundWindow() == typeBox.Handle;
             typeBox.Hide();
+            Kick(); HoverTick();
             // solo si por algun motivo el cuadro quedo con el foco (por ejemplo, abierto desde el menu): devolverlo
             var prev = typePrevFg;
             if (hadFocus && prev != IntPtr.Zero && IsWindow(prev)) { SetForegroundWindow(prev); BringWindowToTop(prev); }
@@ -3917,23 +3933,31 @@ Puerto=8765
         void OpenTypeBox()
         {
             if (typeBox == null || typeBox.IsDisposed) typeBox = new TypeBox(this);
+            // primero el aviso (ensancha la lista) y despues el cuadro al costado
+            Feedback("⌨ escribiendo… las teclas van al cuadro · Esc para cerrar", Color.FromArgb(240, 200, 110), int.MaxValue / 2);
+            PlaceTypeBox();
+            // el juego (o la ventana que este al frente) se queda con el foco: las teclas las toma el gancho
+            var prevFg = GetForegroundWindow();
+            typePrevFg = prevFg != typeBox.Handle && prevFg != Handle ? prevFg : IntPtr.Zero;
+            typeFromGame = DbdInFront();
+            typeOpenedAt = Environment.TickCount; typeRefFg = GetForegroundWindow();
+            typeBox.Open();
+            StartKeyHook();
+            SetWindowPos(typeBox.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040); // arriba de todo (tambien del juego), sin activarse
+            DebugEvent("escribir: abierto en " + typeBox.Bounds + (typeFromGame ? " (DBD al frente)" : "") + (kbHook == IntPtr.Zero ? " · SIN GANCHO" : ""));
+        }
+
+        // el cuadro va pegado al costado de la lista; si la lista cambia de ancho, se corre con ella
+        void PlaceTypeBox()
+        {
+            if (typeBox == null || typeBox.IsDisposed) return;
             var b = Bounds;
             bool right = !cfg.Get("Posicion", "arriba-derecha").ToLowerInvariant().Contains("izq");
             var scr = Screen.FromRectangle(b).WorkingArea;
             int x = right ? b.Left - typeBox.Width - 8 : b.Right + 8;
             x = Math.Max(scr.Left, Math.Min(x, scr.Right - typeBox.Width));
-            typeBox.Location = new Point(x, Math.Max(scr.Top, Math.Min(b.Top, scr.Bottom - typeBox.Height)));
-            // el juego (o la ventana que este al frente) se queda con el foco: las teclas las toma el gancho
-            var prevFg = GetForegroundWindow();
-            typePrevFg = prevFg != typeBox.Handle && prevFg != Handle ? prevFg : IntPtr.Zero;
-            typeFromGame = DbdInFront();
-            typeOpenedAt = Environment.TickCount; typeRefFg = IntPtr.Zero;
-            typeBox.Open();
-            StartKeyHook();
-            SetWindowPos(typeBox.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040); // arriba de todo (tambien del juego), sin activarse
-            DebugEvent("escribir: abierto en " + typeBox.Bounds + (typeFromGame ? " (DBD al frente)" : "") + (kbHook == IntPtr.Zero ? " · SIN GANCHO" : ""));
-            // tambien en el widget (por si el cuadro no se ve): las teclas van al cuadro hasta Enter/Esc
-            Feedback("⌨ escribiendo… las teclas van al cuadro · Esc para cerrar", Color.FromArgb(240, 200, 110), int.MaxValue / 2);
+            var loc = new Point(x, Math.Max(scr.Top, Math.Min(b.Top, scr.Bottom - typeBox.Height)));
+            if (typeBox.Location != loc) typeBox.Location = loc;
         }
 
         // sugerencias: killers, perks, addons (los del killer anotado) y ofrendas, en ingles o en espanol
@@ -4551,7 +4575,7 @@ Puerto=8765
         string steamLobby = "", steamMe = "", steamErr = "";
         Dictionary<string, string> partyNames = new Dictionary<string, string>(); // huella -> nombre de Steam (solo amigos)
         int partyCount;
-        System.Windows.Forms.Timer steamTimer;
+
 
         static string Sha(string s)
         {
@@ -4943,31 +4967,623 @@ Puerto=8765
         bool InGroup { get { return room != null && (ManualRoom || partyCount > 0); } }
         Icon trayRed, trayGreen;
 
-        static Icon TrayIcon(Color bg)
+        // icono: un rombo como los perks, con un gancho adentro. Rojo = sin grupo, verde = compartiendo con alguien
+        public static Bitmap Logo(int s, Color acc)
         {
-            var bmp = new Bitmap(16, 16);
+            var bmp = new Bitmap(s, s, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(bmp))
             {
-                g.Clear(bg);
-                using (var f = new Font("Segoe UI", 8, FontStyle.Bold))
-                    TextRenderer.DrawText(g, "D", f, new Rectangle(0, 0, 16, 16), Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.Clear(Color.Transparent);
+                float c = s / 2f, r = s * 0.49f;
+                var dia = new[] { new PointF(c, c - r), new PointF(c + r, c), new PointF(c, c + r), new PointF(c - r, c) };
+                Color dark = Color.FromArgb(acc.R / 4, acc.G / 4, acc.B / 4);
+                using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(new RectangleF(0, -1, s, s + 2), acc, dark, 90f)) g.FillPolygon(br, dia);
+                // borde oscuro y un filo claro adentro (solo en los grandes)
+                using (var pen = new Pen(Color.FromArgb(230, 10, 6, 8), Math.Max(1f, s / 24f))) g.DrawPolygon(pen, dia);
+                if (s >= 32)
+                {
+                    float r2 = r * 0.84f;
+                    using (var pen = new Pen(Color.FromArgb(90, 255, 220, 215), s / 64f))
+                        g.DrawPolygon(pen, new[] { new PointF(c, c - r2), new PointF(c + r2, c), new PointF(c, c + r2), new PointF(c - r2, c) });
+                }
+                // el gancho: argolla arriba, palo, curva y punta afilada hacia arriba
+                float w = Math.Max(1.5f, s * 0.07f);
+                var hook = Color.FromArgb(245, 240, 236);
+                using (var pen = new Pen(hook, w) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Flat })
+                using (var br = new SolidBrush(hook))
+                {
+                    float sx = s * 0.56f, er = s * 0.055f, eyeY = s * 0.22f, mid = s * 0.57f, hr = s * 0.12f;
+                    if (s >= 24) g.DrawEllipse(pen, sx - er, eyeY - er, 2 * er, 2 * er);
+                    g.DrawLine(pen, sx, s >= 24 ? eyeY + er : s * 0.2f, sx, mid);
+                    g.DrawArc(pen, sx - 2 * hr, mid - hr, 2 * hr, 2 * hr, 0f, 180f);
+                    float tx = sx - 2 * hr;
+                    g.FillPolygon(br, new[] { new PointF(tx - w / 2, mid + 0.5f), new PointF(tx + w / 2, mid + 0.5f), new PointF(tx + w * 0.35f, mid - s * 0.12f) });
+                }
             }
-            return Icon.FromHandle(bmp.GetHicon());
+            return bmp;
+        }
+
+        static Icon TrayIcon(Color bg)
+        {
+            int s = Math.Max(16, SystemInformation.SmallIconSize.Width);
+            using (var bmp = Logo(s, bg)) return Icon.FromHandle(bmp.GetHicon());
+        }
+
+        // --icono archivo.ico : el icono del .exe (varios tamaños, PNG adentro) con el mismo dibujo
+        public static void WriteIco(string path)
+        {
+            int[] sizes = { 16, 20, 24, 32, 40, 48, 64, 128, 256 };
+            var pngs = sizes.Select(sz => { using (var b = Logo(sz, Color.FromArgb(190, 22, 34))) using (var ms = new MemoryStream()) { b.Save(ms, System.Drawing.Imaging.ImageFormat.Png); return ms.ToArray(); } }).ToList();
+            using (var w = new BinaryWriter(File.Create(path)))
+            {
+                w.Write((short)0); w.Write((short)1); w.Write((short)sizes.Length);
+                int off = 6 + 16 * sizes.Length;
+                for (int i = 0; i < sizes.Length; i++)
+                {
+                    w.Write((byte)(sizes[i] >= 256 ? 0 : sizes[i])); w.Write((byte)(sizes[i] >= 256 ? 0 : sizes[i]));
+                    w.Write((byte)0); w.Write((byte)0); w.Write((short)1); w.Write((short)32);
+                    w.Write(pngs[i].Length); w.Write(off);
+                    off += pngs[i].Length;
+                }
+                foreach (var p in pngs) w.Write(p);
+            }
+        }
+
+        // ---- ventana de configuracion: solo existe mientras esta abierta (cerrada no ocupa nada)
+        SettingsWindow settingsWin;
+        public void OpenSettings(string page)
+        {
+            if (settingsWin != null && !settingsWin.IsDisposed) { if (page != null) settingsWin.ShowPage(page); settingsWin.Activate(); return; }
+            settingsWin = new SettingsWindow(this, page);
+            settingsWin.FormClosed += (s, e) => { FlushCfg(); EndSample(); settingsWin = null; Relayout(); };
+            settingsWin.Show();
+            settingsWin.Activate();
+        }
+
+        // las barras cambian la config en vivo; el archivo se escribe al soltar la barra o al cerrar la ventana
+        readonly HashSet<string> cfgDirty = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Live(string k, string v) { cfg.V[k] = v; cfgDirty.Add(k); }
+        void FlushCfg()
+        {
+            foreach (var k in cfgDirty) Cfg.Set(Path.Combine(dir, "config.ini"), k, cfg.V[k]);
+            cfgDirty.Clear();
+        }
+
+        // el mapa abierto, con el tamaño / lugar / opacidad de ahora (sin anotarlo en el log)
+        void RefreshMap()
+        {
+            List<string> files;
+            if (mapWin == null || mapShown == null || !cat.MapFiles.TryGetValue(mapShown, out files)) return;
+            var e = cat.Maps.FirstOrDefault(m => m.Name == mapShown);
+            mapWin.Set(mapShown, e != null ? e.ActionTag : "", files, MapSize);
+            mapWin.Place(cfg.GetInt("MapaX", 20), cfg.GetInt("MapaY", 20));
+            mapWin.Opacity = MapOpacity / 100.0;
+            mapWin.Invalidate();
+        }
+
+        // lista de ejemplo (solo con la lista vacia) para ver como queda mientras se configura
+        List<Entry> sampleItems; Entry sampleKiller;
+        bool SampleOn { get { return sampleItems != null; } }
+        void StartSample()
+        {
+            if (SampleOn || HasAnything()) return;
+            var k = cat.Killers.FirstOrDefault(x => cat.Perks.Count(p => p.Owner == x.Name) >= 3 && cat.Addons.Count(a => a.Killer == x.Name) >= 2);
+            if (k == null) return;
+            var perks = cat.Perks.Where(p => p.Owner == k.Name).Take(3).Concat(cat.Perks.Where(p => string.IsNullOrEmpty(p.Owner)).Take(1)).ToList();
+            var addons = cat.Addons.Where(a => a.Killer == k.Name).Take(2).ToList();
+            sampleKiller = k;
+            sampleItems = perks.Concat(addons).ToList();
+            st.Killer = k; st.Perks.AddRange(perks); st.Addons.AddRange(addons);
+            st.Offering = cat.Offerings.FirstOrDefault();
+            if (st.Offering != null) sampleItems.Add(st.Offering);
+            Relayout();
+        }
+        void EndSample()
+        {
+            if (!SampleOn) return;
+            var s = sampleItems; sampleItems = null;
+            st.Perks.RemoveAll(s.Contains); st.Addons.RemoveAll(s.Contains);
+            st.Doubt.RemoveAll(s.Contains);
+            if (st.Offering != null && s.Contains(st.Offering)) st.Offering = null;
+            if (st.Killer == sampleKiller && st.Perks.Count == 0 && st.Addons.Count == 0) st.Killer = null;
+            Relayout();
+        }
+
+        static readonly Tuple<string, string>[] Corners = {
+            Tuple.Create("arriba-derecha", "Arriba a la derecha"), Tuple.Create("arriba-izquierda", "Arriba a la izquierda"),
+            Tuple.Create("abajo-derecha", "Abajo a la derecha"), Tuple.Create("abajo-izquierda", "Abajo a la izquierda") };
+
+        // valores de fabrica de todo lo que es apariencia (las teclas, la sala y la voz no se tocan)
+        static readonly Tuple<string, string>[] LookDefaults = {
+            Tuple.Create("Posicion", "arriba-derecha"), Tuple.Create("MargenX", "30"), Tuple.Create("MargenY", "140"),
+            Tuple.Create("Escala", "100"), Tuple.Create("TamanoPerk", "72"), Tuple.Create("TamanoLetra", "14"),
+            Tuple.Create("TamanoKiller", "12"), Tuple.Create("Opacidad", "0.85"), Tuple.Create("TamanoMapa", "220"),
+            Tuple.Create("OpacidadMapa", "90"), Tuple.Create("MapaX", "20"), Tuple.Create("MapaY", "20") };
+
+        // ---- estilo de la ventana: casi negro, rojo sangre, titulos condensados en mayusculas y rombos como los perks
+        static class Dbd
+        {
+            public static readonly Color Bg = Color.FromArgb(14, 12, 14), Side = Color.FromArgb(8, 7, 9), Fg = Color.FromArgb(222, 216, 210),
+                Dim = Color.FromArgb(138, 128, 126), Off = Color.FromArgb(78, 72, 72), Ctl = Color.FromArgb(26, 20, 22), CtlHi = Color.FromArgb(58, 18, 22),
+                Acc = Color.FromArgb(150, 16, 26), AccHi = Color.FromArgb(214, 32, 44), Line = Color.FromArgb(52, 40, 42), Track = Color.FromArgb(40, 32, 34);
+            static readonly Dictionary<string, Font> cache = new Dictionary<string, Font>();
+            // letra condensada de los titulos (Bahnschrift viene con Windows 10/11); si no esta, Segoe UI
+            public static Font Head(float size) { return Get(new[] { "Bahnschrift SemiBold SemiConden", "Bahnschrift SemiBold", "Segoe UI Semibold" }, size); }
+            public static Font Cond(float size) { return Get(new[] { "Bahnschrift SemiCondensed", "Bahnschrift", "Segoe UI" }, size); }
+            static Font Get(string[] names, float size)
+            {
+                string key = names[0] + size;
+                Font f;
+                if (cache.TryGetValue(key, out f)) return f;
+                foreach (var n in names)
+                {
+                    f = new Font(n, size);
+                    if (f.Name == n) break;
+                    f.Dispose(); f = null;
+                }
+                if (f == null) f = new Font("Segoe UI", size);
+                cache[key] = f;
+                return f;
+            }
+            public static PointF[] Diamond(float cx, float cy, float r) { return new[] { new PointF(cx, cy - r), new PointF(cx + r, cy), new PointF(cx, cy + r), new PointF(cx - r, cy) }; }
+        }
+
+        // barra propia (la de Windows es azul y no se puede pintar): pista roja y un rombo para arrastrar
+        class DSlider : Control
+        {
+            public int Minimum, Maximum = 100;
+            int val; bool drag, hover;
+            public event EventHandler ValueChanged, Released;
+            const int Pad = 10;
+            public DSlider()
+            {
+                SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+                Cursor = Cursors.Hand; TabStop = true;
+            }
+            public int Value
+            {
+                get { return val; }
+                set { int v = Math.Max(Minimum, Math.Min(Maximum, value)); if (v == val) return; val = v; Invalidate(); if (ValueChanged != null) ValueChanged(this, EventArgs.Empty); }
+            }
+            int XOf(int v) { return Pad + (int)((long)(Width - 2 * Pad) * (v - Minimum) / Math.Max(1, Maximum - Minimum)); }
+            void SetFromX(int x) { Value = Minimum + (int)Math.Round((double)(x - Pad) * (Maximum - Minimum) / Math.Max(1, Width - 2 * Pad)); }
+            protected override void OnMouseDown(MouseEventArgs e) { if (e.Button != MouseButtons.Left) return; drag = true; Focus(); SetFromX(e.X); Invalidate(); }
+            protected override void OnMouseMove(MouseEventArgs e) { if (drag) SetFromX(e.X); }
+            protected override void OnMouseUp(MouseEventArgs e) { if (!drag) return; drag = false; Invalidate(); if (Released != null) Released(this, EventArgs.Empty); }
+            protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); }
+            protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); }
+            protected override bool IsInputKey(Keys k) { return k == Keys.Left || k == Keys.Right || k == Keys.Up || k == Keys.Down || base.IsInputKey(k); }
+            protected override void OnKeyDown(KeyEventArgs e)
+            {
+                int big = Math.Max(1, (Maximum - Minimum) / 10);
+                if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Down) Value--;
+                else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Up) Value++;
+                else if (e.KeyCode == Keys.PageDown) Value -= big;
+                else if (e.KeyCode == Keys.PageUp) Value += big;
+            }
+            protected override void OnKeyUp(KeyEventArgs e) { if (Released != null) Released(this, EventArgs.Empty); }
+            protected override void OnGotFocus(EventArgs e) { Invalidate(); }
+            protected override void OnLostFocus(EventArgs e) { Invalidate(); }
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.Clear(BackColor);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                int cy = Height / 2, xv = XOf(val);
+                using (var br = new SolidBrush(Dbd.Track)) g.FillRectangle(br, Pad, cy - 2, Width - 2 * Pad, 4);
+                using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(Pad, 0, Math.Max(1, xv - Pad + 1), 4), Color.FromArgb(90, 10, 16), Dbd.Acc, 0f))
+                    g.FillRectangle(br, Pad, cy - 2, Math.Max(0, xv - Pad), 4);
+                bool hot = hover || drag || Focused;
+                using (var br = new SolidBrush(hot ? Dbd.AccHi : Dbd.Acc)) g.FillPolygon(br, Dbd.Diamond(xv, cy, 8));
+                using (var pen = new Pen(Color.FromArgb(10, 6, 8), 1.5f)) g.DrawPolygon(pen, Dbd.Diamond(xv, cy, 8));
+                using (var br = new SolidBrush(Color.FromArgb(hot ? 120 : 70, 255, 230, 225))) g.FillPolygon(br, Dbd.Diamond(xv, cy, 2.5f));
+            }
+        }
+
+        // casilla con forma de rombo
+        class DCheck : Control
+        {
+            bool chk, hover;
+            public event EventHandler CheckedChanged;
+            public DCheck()
+            {
+                SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+                Cursor = Cursors.Hand; TabStop = true; Height = 26;
+            }
+            public bool Checked
+            {
+                get { return chk; }
+                set { if (chk == value) return; chk = value; Invalidate(); if (CheckedChanged != null) CheckedChanged(this, EventArgs.Empty); }
+            }
+            protected override void OnClick(EventArgs e) { if (Enabled) { Focus(); Checked = !Checked; } }
+            protected override bool IsInputKey(Keys k) { return k == Keys.Space || base.IsInputKey(k); }
+            protected override void OnKeyDown(KeyEventArgs e) { if (e.KeyCode == Keys.Space && Enabled) Checked = !Checked; }
+            protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); }
+            protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); }
+            protected override void OnEnabledChanged(EventArgs e) { Invalidate(); }
+            protected override void OnTextChanged(EventArgs e) { Invalidate(); }
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.Clear(BackColor);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                float cx = 10, cy = Height / 2f;
+                bool on = Enabled;
+                if (chk)
+                {
+                    using (var br = new SolidBrush(on ? (hover ? Dbd.AccHi : Dbd.Acc) : Dbd.Off)) g.FillPolygon(br, Dbd.Diamond(cx, cy, 8));
+                    using (var br = new SolidBrush(Color.FromArgb(on ? 200 : 90, 255, 236, 230))) g.FillPolygon(br, Dbd.Diamond(cx, cy, 3));
+                }
+                else using (var pen = new Pen(on ? (hover ? Dbd.AccHi : Color.FromArgb(120, 100, 100)) : Dbd.Off, 1.6f)) g.DrawPolygon(pen, Dbd.Diamond(cx, cy, 7.5f));
+                TextRenderer.DrawText(g, Text, Font, new Point(26, (Height - Font.Height) / 2), on ? Dbd.Fg : Dbd.Off, TextFormatFlags.NoPrefix);
+            }
+        }
+
+        // item del costado: el elegido con una franja roja que se desvanece (como los menus del juego)
+        class DNav : Control
+        {
+            public bool Selected; bool hover;
+            public DNav() { SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true); Cursor = Cursors.Hand; }
+            protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); }
+            protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); }
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.Clear(BackColor);
+                if (Selected || hover)
+                {
+                    var r = new Rectangle(0, 0, Width, Height);
+                    using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(r, Color.FromArgb(Selected ? 150 : 60, Dbd.Acc), Color.FromArgb(0, Dbd.Acc), 0f)) g.FillRectangle(br, r);
+                    if (Selected) using (var br = new SolidBrush(Dbd.AccHi)) g.FillRectangle(br, 0, 0, 3, Height);
+                }
+                TextRenderer.DrawText(g, Text.ToUpperInvariant(), Font, new Rectangle(22, 0, Width - 22, Height), Selected ? Color.White : hover ? Dbd.Fg : Dbd.Dim, TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            }
+        }
+
+        class SettingsWindow : Form
+        {
+            readonly Overlay ov;
+            readonly Panel nav, body;
+            readonly List<Action> refreshers = new List<Action>();
+            readonly List<DNav> navItems = new List<DNav>();
+            bool refreshing;
+            int y;
+            string cur;
+            static readonly string[] Pages = { "Lista", "Mapa", "Teclas", "Sala", "Voz", "General" };
+            const int X = 24, W = 420;
+            static Color Bg { get { return Dbd.Bg; } }
+            static Color Fg { get { return Dbd.Fg; } }
+            static Color Dim { get { return Dbd.Dim; } }
+
+            [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int v, int size);
+            [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] static extern int SetWindowTheme(IntPtr h, string app, string idList);
+
+            public SettingsWindow(Overlay o, string page)
+            {
+                ov = o;
+                Text = "DBD Overlay · Configuración";
+                FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
+                StartPosition = FormStartPosition.CenterScreen;
+                ClientSize = new Size(640, 580);
+                BackColor = Bg; ForeColor = Fg; Font = new Font("Segoe UI", 9.5f);
+                if (ov.trayRed != null) Icon = ov.trayRed;
+                body = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Bg };
+                nav = new Panel { Dock = DockStyle.Left, Width = 160, BackColor = Dbd.Side };
+                Controls.Add(body); Controls.Add(nav);
+                // costado: nombre arriba, un resplandor rojo abajo y la version
+                nav.Paint += (s, e) =>
+                {
+                    var g = e.Graphics;
+                    var glow = new Rectangle(0, nav.Height - 220, nav.Width, 220);
+                    using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(glow.X, glow.Y - 2, glow.Width, glow.Height + 4), Color.FromArgb(0, 80, 6, 12), Color.FromArgb(110, 80, 6, 12), 90f)) g.FillRectangle(br, glow);
+                    TextRenderer.DrawText(g, "DBD", Dbd.Head(22f), new Point(18, 16), Dbd.AccHi, TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(g, "OVERLAY", Dbd.Head(11f), new Point(21, 50), Dbd.Fg, TextFormatFlags.NoPrefix);
+                    using (var br = new SolidBrush(Dbd.Acc)) g.FillRectangle(br, 21, 74, 34, 2);
+                    TextRenderer.DrawText(g, "v" + Updater.AppVersion, Dbd.Cond(9f), new Point(21, nav.Height - 28), Dbd.Dim, TextFormatFlags.NoPrefix);
+                    using (var pen = new Pen(Dbd.Line)) g.DrawLine(pen, nav.Width - 1, 0, nav.Width - 1, nav.Height);
+                };
+                int ny = 96;
+                foreach (var p in Pages)
+                {
+                    var l = new DNav { Text = p, Bounds = new Rectangle(0, ny, 159, 40), Font = Dbd.Head(11.5f), BackColor = Dbd.Side };
+                    string pp = p;
+                    l.Click += (s, e) => ShowPage(pp);
+                    nav.Controls.Add(l); navItems.Add(l);
+                    ny += 42;
+                }
+                // al volver a la ventana (por ejemplo despues de elegir una tecla o unirse a una sala) se actualiza lo que muestra
+                Activated += (s, e) => Refresh2();
+                ShowPage(page ?? "Lista");
+            }
+
+            protected override void OnHandleCreated(EventArgs e)
+            {
+                base.OnHandleCreated(e);
+                // barra de titulo oscura (Windows 10 1809+ / 11) y barra de scroll oscura
+                try { int on = 1; if (DwmSetWindowAttribute(Handle, 20, ref on, 4) != 0) DwmSetWindowAttribute(Handle, 19, ref on, 4); } catch { }
+                try { SetWindowTheme(body.Handle, "DarkMode_Explorer", null); } catch { }
+            }
+
+            void Refresh2() { refreshing = true; try { foreach (var r in refreshers) r(); } finally { refreshing = false; } }
+
+            public void ShowPage(string page)
+            {
+                if (Array.IndexOf(Pages, page) < 0) page = "Lista";
+                cur = page;
+                foreach (var l in navItems) { l.Selected = l.Text == page; l.Invalidate(); }
+                body.SuspendLayout();
+                body.AutoScrollPosition = Point.Empty;
+                var old = body.Controls.Cast<Control>().ToList();
+                body.Controls.Clear();
+                foreach (var c in old) c.Dispose();
+                refreshers.Clear();
+                y = 22;
+                switch (page)
+                {
+                    case "Lista": PageList(); break;
+                    case "Mapa": PageMap(); break;
+                    case "Teclas": PageKeys(); break;
+                    case "Sala": PageRoom(); break;
+                    case "Voz": PageVoice(); break;
+                    default: PageGeneral(); break;
+                }
+                body.Controls.Add(new Label { Bounds = new Rectangle(X, y, 10, 14) }); // margen de abajo al scrollear
+                body.ResumeLayout();
+                Refresh2();
+            }
+
+            // ---- piezas
+            void Title(string t)
+            {
+                if (y > 22) y += 14;
+                body.Controls.Add(new Label { Text = t.ToUpperInvariant(), AutoSize = true, Location = new Point(X - 1, y), Font = Dbd.Head(15f), ForeColor = Fg });
+                y += 32;
+                // linea roja que se desvanece
+                var ln = new Panel { Bounds = new Rectangle(X, y, W, 2), BackColor = Bg };
+                ln.Paint += (s, e) => { using (var br = new System.Drawing.Drawing2D.LinearGradientBrush(ln.ClientRectangle, Dbd.Acc, Color.FromArgb(0, Dbd.Acc), 0f)) e.Graphics.FillRectangle(br, ln.ClientRectangle); };
+                body.Controls.Add(ln);
+                y += 14;
+            }
+            void Note(string t)
+            {
+                var l = new Label { Text = t, AutoSize = false, Location = new Point(X, y), ForeColor = Dim, Font = new Font("Segoe UI", 8.75f) };
+                l.Size = new Size(W, TextRenderer.MeasureText(t, l.Font, new Size(W, 1000), TextFormatFlags.WordBreak).Height + 2);
+                body.Controls.Add(l);
+                y += l.Height + 8;
+            }
+            DCheck Check(string t, Func<bool> get, Action<bool> set)
+            {
+                var c = new DCheck { Text = t, Location = new Point(X - 1, y), BackColor = Bg, ForeColor = Fg, Font = Font };
+                c.Width = 30 + TextRenderer.MeasureText(t, Font).Width;
+                c.CheckedChanged += (s, e) => { if (!refreshing) set(c.Checked); };
+                refreshers.Add(() => c.Checked = get());
+                body.Controls.Add(c);
+                y += 32;
+                return c;
+            }
+            // barra: cambia en vivo; se guarda en el archivo al soltarla
+            void Slider(string t, int min, int max, Func<int> get, Action<int> live, Func<int, string> fmt)
+            {
+                var l = new Label { AutoSize = true, Location = new Point(X, y), ForeColor = Fg, Text = t };
+                var v = new Label { AutoSize = false, Bounds = new Rectangle(X + W - 100, y, 100, 20), ForeColor = Dbd.AccHi, TextAlign = ContentAlignment.TopRight, Font = Dbd.Head(10.5f) };
+                var tb = new DSlider { Minimum = min, Maximum = max, Bounds = new Rectangle(X - 10, y + 20, W + 20, 26), BackColor = Bg };
+                tb.ValueChanged += (s, e) => { v.Text = fmt(tb.Value); if (!refreshing) live(tb.Value); };
+                tb.Released += (s, e) => ov.FlushCfg();
+                refreshers.Add(() => { tb.Value = Math.Max(min, Math.Min(max, get())); v.Text = fmt(tb.Value); });
+                body.Controls.Add(l); body.Controls.Add(v); body.Controls.Add(tb);
+                y += 54;
+            }
+            void Choice(string t, string[] names, Func<int> get, Action<int> set)
+            {
+                body.Controls.Add(new Label { Text = t, AutoSize = true, Location = new Point(X, y + 4), ForeColor = Fg });
+                var cb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Dbd.Ctl, ForeColor = Fg, Bounds = new Rectangle(X + 180, y, W - 180, 26), DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 20 };
+                // dibujada a mano: la de Windows queda blanca sobre el fondo oscuro
+                cb.DrawItem += (s, e) =>
+                {
+                    bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
+                    using (var br = new SolidBrush(sel ? Dbd.Acc : Dbd.Ctl)) e.Graphics.FillRectangle(br, e.Bounds);
+                    if (e.Index >= 0) TextRenderer.DrawText(e.Graphics, (string)cb.Items[e.Index], cb.Font, new Rectangle(e.Bounds.X + 4, e.Bounds.Y, e.Bounds.Width - 4, e.Bounds.Height), Fg, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                };
+                cb.HandleCreated += (s, e) => { try { SetWindowTheme(cb.Handle, "DarkMode_CFD", null); } catch { } };
+                cb.Items.AddRange(names);
+                cb.SelectedIndexChanged += (s, e) => { if (!refreshing && cb.SelectedIndex >= 0) set(cb.SelectedIndex); };
+                refreshers.Add(() => { int i = get(); cb.SelectedIndex = i >= 0 && i < names.Length ? i : -1; });
+                body.Controls.Add(cb);
+                y += 38;
+            }
+            Button Btn(string t, int x, Action a)
+            {
+                var b = new Button { Text = t.ToUpperInvariant(), AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Location = new Point(x, y), FlatStyle = FlatStyle.Flat, BackColor = Dbd.Ctl, ForeColor = Fg, Padding = new Padding(10, 3, 10, 3), Cursor = Cursors.Hand, Font = Dbd.Head(10f), UseMnemonic = false };
+                b.FlatAppearance.BorderColor = Color.FromArgb(96, 20, 28);
+                b.FlatAppearance.MouseOverBackColor = Dbd.CtlHi;
+                b.FlatAppearance.MouseDownBackColor = Dbd.Acc;
+                b.Click += (s, e) => { a(); Refresh2(); };
+                b.EnabledChanged += (s, e) => b.FlatAppearance.BorderColor = b.Enabled ? Color.FromArgb(96, 20, 28) : Dbd.Line;
+                body.Controls.Add(b);
+                return b;
+            }
+            // varios botones en una fila (el texto puede cambiar: se reacomodan solos)
+            Button[] Buttons(params Tuple<string, Action, Func<bool>>[] bs)
+            {
+                var list = new List<Button>();
+                foreach (var t in bs)
+                {
+                    var b = Btn(t.Item1, X, t.Item2);
+                    var en = t.Item3;
+                    if (en != null) refreshers.Add(() => b.Enabled = en());
+                    list.Add(b);
+                }
+                var arr = list.ToArray();
+                EventHandler lay = (s, e) => { int x = X; foreach (var b in arr) { b.Left = x; x += b.Width + 8; } };
+                foreach (var b in arr) b.SizeChanged += lay;
+                lay(null, null);
+                y += 42;
+                return arr;
+            }
+            static Tuple<string, Action, Func<bool>> B(string t, Action a) { return Tuple.Create(t, a, (Func<bool>)null); }
+            static Tuple<string, Action, Func<bool>> B(string t, Action a, Func<bool> en) { return Tuple.Create(t, a, en); }
+            Label Value(Func<string> get)
+            {
+                var l = new Label { AutoSize = false, Location = new Point(X, y), Size = new Size(W, 24), ForeColor = Fg, Font = Dbd.Head(11f), UseMnemonic = false };
+                refreshers.Add(() => l.Text = get());
+                body.Controls.Add(l);
+                y += 28;
+                return l;
+            }
+            Cfg C { get { return ov.cfg; } }
+            void Look() { ov.MakeFonts(); ov.Relayout(); }
+
+            // ---- paginas
+            void PageList()
+            {
+                var scr = Screen.PrimaryScreen.Bounds;
+                Title("Lista de perks");
+                var sample = Buttons(B("Ver una lista de ejemplo", () => { if (ov.SampleOn) ov.EndSample(); else ov.StartSample(); }, () => ov.SampleOn || !ov.HasAnything()))[0];
+                refreshers.Add(() => sample.Text = (ov.SampleOn ? "Quitar la lista de ejemplo" : "Ver una lista de ejemplo").ToUpperInvariant());
+                Note("Con la lista vacía podés poner una de ejemplo para ver cómo queda cada cambio. Se quita sola al cerrar esta ventana.");
+                Choice("Esquina de la pantalla", Corners.Select(c => c.Item2).ToArray(),
+                    () => { string p = C.Get("Posicion", "arriba-derecha").ToLowerInvariant(); return (p.Contains("abajo") ? 2 : 0) + (p.Contains("izq") ? 1 : 0); },
+                    i => { ov.SetCfg("Posicion", Corners[i].Item1); if (ov.tip != null) ov.tip.Hide(); ov.Relayout(); });
+                Slider("Distancia al borde (de costado)", 0, scr.Width / 2, () => C.GetInt("MargenX", 30), v => { ov.Live("MargenX", v.ToString()); ov.Relayout(); }, v => v + " px");
+                Slider("Distancia al borde (de arriba o abajo)", 0, scr.Height / 2, () => C.GetInt("MargenY", 140), v => { ov.Live("MargenY", v.ToString()); ov.Relayout(); }, v => v + " px");
+                Slider("Escala general", 50, 200, () => C.GetInt("Escala", 100), v => { ov.Live("Escala", v.ToString()); Look(); }, v => v + " %");
+                Slider("Tamaño de los íconos", 24, 120, () => C.GetInt("TamanoPerk", 72), v => { ov.Live("TamanoPerk", v.ToString()); ov.Relayout(); }, v => v + " px");
+                Slider("Tamaño de la letra", 8, 28, () => C.GetInt("TamanoLetra", 14), v => { ov.Live("TamanoLetra", v.ToString()); Look(); }, v => v.ToString());
+                Slider("Opacidad", 30, 100, () => (int)Math.Round(C.GetD("Opacidad", 0.85) * 100),
+                    v => { ov.Live("Opacidad", (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture)); ov.Opacity = v / 100.0; }, v => v + " %");
+                Check("Mostrar los nombres de perks y addons", () => ov.showNames, v => ov.SetNames(v));
+                Check("Mostrar el nombre del killer", () => ov.KillerOn, v => { ov.SetCfg("MostrarKiller", v ? "si" : "no"); ov.Relayout(); });
+                Slider("Tamaño del nombre del killer", 6, 22, () => C.GetInt("TamanoKiller", 12), v => { ov.Live("TamanoKiller", v.ToString()); ov.killerFont = null; ov.Relayout(); }, v => v.ToString());
+                Check("Mostrar solo con el menú de DBD abierto (ESC)", () => ov.MenuOnly, v => ov.SetCfg("Visibilidad", v ? "menu" : "siempre"));
+                Note("Mientras jugás la lista se oculta y aparece al abrir el menú ESC, al escribir con Shift+T o cuando hay un mensaje.");
+            }
+
+            void PageMap()
+            {
+                var scr = Screen.PrimaryScreen.Bounds;
+                Title("Mapa");
+                var show = Buttons(B("Ver un mapa de ejemplo", () =>
+                {
+                    if (ov.mapShown != null) { ov.HideMap(false); return; }
+                    var m = ov.cat.Maps.FirstOrDefault(x => ov.cat.MapFiles.ContainsKey(x.Name));
+                    if (m != null) ov.ShowMap(m.Name, false);
+                }, () => ov.cat.MapFiles.Count > 0))[0];
+                refreshers.Add(() => show.Text = (ov.mapShown != null ? "Ocultar el mapa" : "Ver un mapa de ejemplo").ToUpperInvariant());
+                Note("El mapa se elige escribiendo su nombre en el cuadro de Shift+T (por ejemplo \"mapa coal\"). Cuando estás en sala, lo ven todos.");
+                Slider("Tamaño", 160, 700, () => ov.MapSize, v => { ov.Live("TamanoMapa", v.ToString()); ov.RefreshMap(); }, v => v + " px");
+                Slider("Opacidad", 15, 100, () => ov.MapOpacity, v => { ov.Live("OpacidadMapa", v.ToString()); if (ov.mapWin != null) ov.mapWin.Opacity = v / 100.0; }, v => v + " %");
+                Slider("Posición desde la izquierda", 0, Math.Max(100, scr.Width - 160), () => C.GetInt("MapaX", 20), v => { ov.Live("MapaX", v.ToString()); ov.RefreshMap(); }, v => v + " px");
+                Slider("Posición desde arriba", 0, Math.Max(100, scr.Height - 160), () => C.GetInt("MapaY", 20), v => { ov.Live("MapaY", v.ToString()); ov.RefreshMap(); }, v => v + " px");
+                Check("Mostrar solo con el menú de DBD abierto (ESC)", () => ov.MapMenuOnly, v => { ov.SetCfg("MapaVisibilidad", v ? "menu" : "siempre"); ov.UpdateMapVisibility(ov.cursorShown); });
+                Note("Planos con callouts de Lethia (hens333.com/callouts), versión de Zexov sobre el original de Broosley y Evo.");
+            }
+
+            void PageKeys()
+            {
+                Title("Teclas");
+                foreach (var act in KeyActions)
+                {
+                    var a = act;
+                    body.Controls.Add(new Label { Text = a.Item1, AutoSize = true, Location = new Point(X, y + 6), ForeColor = Fg });
+                    var v = new Label { AutoSize = false, Bounds = new Rectangle(X + 215, y + 4, 115, 22), ForeColor = Dbd.AccHi, Font = Dbd.Head(11f), UseMnemonic = false };
+                    refreshers.Add(() => { string k = C.Get(a.Item2, a.Item3); v.Text = k.Length > 0 ? k : "sin tecla"; });
+                    body.Controls.Add(v);
+                    Btn("Cambiar…", X + 330, () => ov.AskKey(a));
+                    y += 40;
+                }
+                y += 4;
+                Check("Las teclas solo funcionan con DBD al frente", () => ov.KeysOnlyInDbd, v => ov.SetCfg("TeclasSoloEnDBD", v ? "si" : "no"));
+                Note("Así, escribiendo en Discord o en el navegador, Shift+T o Shift+G no hacen nada. Al cambiar una tecla podés usar combinaciones (Shift, Ctrl, Alt) o un botón del mouse.");
+            }
+
+            void PageRoom()
+            {
+                Title("Sala compartida");
+                Value(() => ov.RoomText());
+                Note("En sala, lo que anota uno lo ven todos.");
+                Check("Automática con mi grupo de Steam", () => ov.AutoRoom, v => ov.SetAuto(v));
+                Note("Con DBD abierto, todos los del mismo grupo de Steam que tengan la app quedan juntos, sin hacer nada.");
+                Title("Sala con código");
+                Note("Para jugar con gente que no está en tu grupo de Steam (hasta 4 por sala). También se maneja desde Shift+T escribiendo \"sala nueva\", \"sala CÓDIGO\" o \"salir\".");
+                Value(() => ov.ManualRoom ? "Código: " + ov.cfg.Get("Sala", "") : "No estás en una sala con código");
+                Buttons(B("Crear sala", () => ov.CreateRoom()), B("Unirse…", () => ov.JoinRoom()),
+                        B("Copiar código", () => { try { Clipboard.SetText(ov.cfg.Get("Sala", "")); } catch { } }, () => ov.ManualRoom),
+                        B("Salir", () => ov.LeaveRoom(), () => ov.ManualRoom));
+                Value(() => "Tu nombre: " + (ov.MyName.Length > 0 ? ov.MyName : "(sin nombre)"));
+                Buttons(B("Cambiar mi nombre…", () => ov.AskName()));
+                Check("Mostrar el ícono de sala en la lista", () => ov.ShowRoomLine, v => { ov.SetCfg("MostrarSala", v ? "si" : "no"); if (ov.roomLineItem != null) ov.roomLineItem.Checked = v; ov.Relayout(); });
+            }
+
+            void PageVoice()
+            {
+                Title("Voz");
+                Note("Anotar hablando con Whisper (corre en tu PC, sin internet). Usa bastante procesador mientras entiende una frase: en PCs con pocos recursos conviene dejarla apagada y anotar con Shift+T.");
+                Check("Reconocimiento de voz", () => ov.VoiceOn, v => ov.SetVoice(v));
+                var devs = new List<string> { "Predeterminado de Windows" };
+                try { devs.AddRange(Mic.Devices()); } catch { }
+                Choice("Micrófono", devs.ToArray(),
+                    () => { string m = C.Get("Microfono", ""); int i = devs.FindIndex(d => d.Equals(m, StringComparison.OrdinalIgnoreCase)); return m.Length == 0 ? 0 : i; },
+                    i => { ov.SetCfg("Microfono", i == 0 ? "" : devs[i]); if (ov.mic != null) ov.StartMic(); });
+                var hands = Check("Hablar sin tecla (prueba)", () => ov.HandsOn, v => ov.SetHands(v));
+                var listen = Check("Escuchar Discord (prueba)", () => ov.ListenOn, v => ov.SetListen(v));
+                var heard = Check("Mostrar lo que entiende Whisper", () => ov.ShowHeard, v => ov.SetCfg("VerTranscripcion", v ? "si" : "no"));
+                Func<bool> inst = () => ov.voice || (ov.FindWhisperExe() != null && ov.FindModel() != null);
+                refreshers.Add(() => { bool v = ov.VoiceOn; hands.Enabled = listen.Enabled = heard.Enabled = v; });
+                var bs = Buttons(B("Ver todo lo que escuchó…", () =>
+                        {
+                            string path = Path.Combine(ov.dir, "logs", "escuchado.txt");
+                            try { if (!File.Exists(path)) File.WriteAllText(path, "", Encoding.UTF8); Process.Start("notepad.exe", "\"" + path + "\""); } catch { }
+                        }), B("Instalar Whisper…", () => ov.InstallVoice(), () => !inst() && !ov.installing));
+                refreshers.Add(() => bs[1].Text = (inst() ? "Whisper instalado ✓" : ov.installing ? "Instalando Whisper…" : "Instalar Whisper…").ToUpperInvariant());
+            }
+
+            void PageGeneral()
+            {
+                Title("Idioma");
+                var langs = new[] { "Inglés", "Español" };
+                Choice("Nombres", langs, () => C.Get("IdiomaNombres", "en").ToLowerInvariant().StartsWith("es") ? 1 : 0,
+                    i => { ov.SetCfg("IdiomaNombres", i == 1 ? "es" : "en"); if (ov.tip != null) { ov.tip.Hide(); ov.hoverE = null; } ov.Relayout(); });
+                Choice("Descripciones", langs, () => C.Get("IdiomaDescripciones", "es").ToLowerInvariant().StartsWith("es") ? 1 : 0,
+                    i => { ov.SetCfg("IdiomaDescripciones", i == 1 ? "es" : "en"); if (ov.tip != null) { ov.tip.Hide(); ov.hoverE = null; } ov.Relayout(); });
+                Title("App");
+                Value(() => "Versión " + Updater.AppVersion);
+                Buttons(B("Buscar actualización", () => { if (ov.updating) return; ov.Feedback("Buscando actualización…", Color.FromArgb(200, 200, 210), 4000); ov.CheckUpdate(true); }),
+                        B("Abrir carpeta", () => { try { Process.Start("explorer.exe", "\"" + ov.dir + "\""); } catch { } }));
+                Buttons(B("Editar apodos", () => { try { ov.st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(ov.dir, "apodos.txt") + "\""); } catch { } }),
+                        B("Editar config.ini (avanzado)", () => { ov.FlushCfg(); try { Process.Start("notepad.exe", "\"" + Path.Combine(ov.dir, "config.ini") + "\""); } catch { } }));
+                Note("Los apodos son nombres alternativos para perks, addons o killers (por ejemplo \"ruina\" para Hex: Ruin).");
+                Title("Apariencia");
+                Buttons(B("Volver la apariencia a la de fábrica", () =>
+                {
+                    if (MessageBox.Show(this, "¿Volver el tamaño, la posición y la opacidad de la lista y del mapa a los valores de fábrica?\n(Las teclas, la sala y la voz no se tocan.)", "DBD Overlay", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    foreach (var d in LookDefaults) ov.SetCfg(d.Item1, d.Item2);
+                    ov.Opacity = 0.85; ov.MakeFonts(); ov.Relayout(); ov.RefreshMap();
+                    ov.Feedback("apariencia de fábrica", Color.Silver, 3000);
+                }));
+            }
         }
 
         void SetupTray()
         {
-            trayRed = TrayIcon(Color.FromArgb(170, 20, 30));
-            trayGreen = TrayIcon(Color.FromArgb(30, 140, 60));
+            trayRed = TrayIcon(Color.FromArgb(190, 22, 34));
+            trayGreen = TrayIcon(Color.FromArgb(40, 150, 70));
             tray = new NotifyIcon { Icon = trayRed, Text = "DBD Overlay", Visible = true };
+            // doble clic en el icono: configuracion
+            tray.MouseDoubleClick += (s, e) => { if (e.Button == MouseButtons.Left) OpenSettings(null); };
             var menu = new ContextMenuStrip();
             // arriba de todo, la version (para saber si ya se actualizo)
             menu.Items.Add(new ToolStripMenuItem("DBD Overlay · versión " + Updater.AppVersion) { Enabled = false });
             menu.Items.Add(new ToolStripSeparator());
+            var cfgItem = new ToolStripMenuItem("Configuración…", null, (s, e) => OpenSettings(null));
+            cfgItem.Font = new Font(cfgItem.Font, FontStyle.Bold);
+            menu.Items.Add(cfgItem);
+            var typeItem = new ToolStripMenuItem("Escribir…");
+            typeItem.Click += (s, e) => OpenTypeBox();
+            menu.Items.Add(typeItem);
             menu.Items.Add("Borrar lista", null, (s, e) => ClearWithUndo());
-            namesItem = new ToolStripMenuItem("Mostrar nombres") { Checked = showNames };
-            namesItem.Click += (s, e) => SetNames(!showNames);
-            menu.Items.Add(namesItem);
+            // lo de siempre de la sala queda a mano; el resto esta en Configuracion > Sala
             var roomMenu = new ToolStripMenuItem("Sala compartida");
             roomLabel = new ToolStripMenuItem("Sin sala") { Enabled = false };
             roomMenu.DropDownItems.Add(roomLabel);
@@ -4976,164 +5592,23 @@ Puerto=8765
             autoItem.Click += (s, e) => SetAuto(!AutoRoom);
             roomMenu.DropDownItems.Add(autoItem);
             roomMenu.DropDownItems.Add("-");
-            roomMenu.DropDownItems.Add(new ToolStripMenuItem("Con código (para quien no juega por Steam):") { Enabled = false });
             roomMenu.DropDownItems.Add("Crear sala con código", null, (s, e) => CreateRoom());
-            roomLineItem = new ToolStripMenuItem("Mostrar en la lista si estoy en sala") { Checked = ShowRoomLine };
-            roomLineItem.Click += (s, e) => { SetCfg("MostrarSala", ShowRoomLine ? "no" : "si"); roomLineItem.Checked = ShowRoomLine; Relayout(); };
             roomMenu.DropDownItems.Add("Unirse con código…", null, (s, e) => JoinRoom());
             roomCopy = new ToolStripMenuItem("Copiar código", null, (s, e) =>
             {
                 try { Clipboard.SetText(cfg.Get("Sala", "")); Feedback("código copiado: " + cfg.Get("Sala", ""), Color.Silver, 3000); } catch { }
             });
             roomMenu.DropDownItems.Add(roomCopy);
-            roomMenu.DropDownItems.Add("Cambiar mi nombre…", null, (s, e) => AskName());
             roomLeave = new ToolStripMenuItem("Salir de la sala con código", null, (s, e) => LeaveRoom());
             roomMenu.DropDownItems.Add(roomLeave);
-            roomMenu.DropDownItems.Add("-");
-            roomMenu.DropDownItems.Add(roomLineItem);
             menu.Items.Add(roomMenu);
-            // ---- todo lo de la voz junto, en un submenu
-            var voiceMenu = new ToolStripMenuItem("Voz (Whisper)");
-            var voiceOnItem = new ToolStripMenuItem("Reconocimiento de voz");
-            voiceOnItem.Click += (s, e) => SetVoice(!VoiceOn);
+            // estos ya no estan en el menu (estan en la ventana), pero otras partes los actualizan
+            roomLineItem = new ToolStripMenuItem("Mostrar en la lista si estoy en sala") { Checked = ShowRoomLine };
+            namesItem = new ToolStripMenuItem("Mostrar nombres") { Checked = showNames };
             listenItem = new ToolStripMenuItem("Escuchar Discord (prueba)");
-            listenItem.Click += (s, e) => SetListen(!ListenOn);
             handsItem = new ToolStripMenuItem("Hablar sin tecla (prueba)");
-            handsItem.Click += (s, e) => SetHands(!HandsOn);
-            var heardItem = new ToolStripMenuItem("Mostrar lo que entiende Whisper");
-            heardItem.Click += (s, e) => { SetCfg("VerTranscripcion", ShowHeard ? "no" : "si"); Feedback(ShowHeard ? "voy a mostrar lo que entiendo" : "ya no muestro lo que entiendo", Color.Silver, 3000); };
-            var heardLog = new ToolStripMenuItem("Ver todo lo que escuchó…", null, (s, e) =>
-            {
-                string path = Path.Combine(dir, "logs", "escuchado.txt");
-                try { if (!File.Exists(path)) File.WriteAllText(path, "", Encoding.UTF8); Process.Start("notepad.exe", "\"" + path + "\""); } catch { }
-            });
-            var installItem = new ToolStripMenuItem("Instalar voz (Whisper)…", null, (s, e) => InstallVoice());
-            voiceMenu.DropDownItems.Add(voiceOnItem);
-            voiceMenu.DropDownItems.Add(new ToolStripSeparator());
-            voiceMenu.DropDownItems.Add(handsItem);
-            voiceMenu.DropDownItems.Add(listenItem);
-            voiceMenu.DropDownItems.Add(heardItem);
-            voiceMenu.DropDownItems.Add(heardLog);
-            voiceMenu.DropDownItems.Add(new ToolStripSeparator());
-            voiceMenu.DropDownItems.Add(installItem);
-            menu.Items.Add(voiceMenu);
-            menu.Opening += (s, e) =>
-            {
-                bool v = VoiceOn;
-                voiceMenu.Text = "Voz (Whisper): " + (v ? "prendida" : "apagada");
-                voiceOnItem.Checked = v;
-                listenItem.Checked = ListenOn; handsItem.Checked = HandsOn; heardItem.Checked = ShowHeard;
-                // con la voz apagada, lo que depende de Whisper queda gris
-                listenItem.Enabled = handsItem.Enabled = heardItem.Enabled = v;
-                // si ya esta instalado (o instalandose) el boton queda deshabilitado
-                bool inst = voice || (FindWhisperExe() != null && FindModel() != null);
-                installItem.Enabled = !inst && !installing;
-                installItem.Text = inst ? "Whisper instalado ✓" : installing ? "Instalando Whisper…" : "Instalar voz (Whisper)…";
-            };
-
-            // ---- escribir y teclas
-            var typeItem = new ToolStripMenuItem("Escribir en vez de hablar…");
-            typeItem.Click += (s, e) => OpenTypeBox();
-            menu.Items.Add(typeItem);
-            var keysMenu = new ToolStripMenuItem("Teclas");
-            var keyItems = new List<Tuple<ToolStripMenuItem, Tuple<string, string, string, bool>>>();
-            foreach (var act in KeyActions)
-            {
-                var a2 = act;
-                var it = new ToolStripMenuItem(act.Item1);
-                it.Click += (s, e) => AskKey(a2);
-                keysMenu.DropDownItems.Add(it);
-                keyItems.Add(Tuple.Create(it, act));
-            }
-            keysMenu.DropDownItems.Add(new ToolStripSeparator());
-            var onlyDbdItem = new ToolStripMenuItem("Teclas solo con DBD en primer plano");
-            onlyDbdItem.Click += (s, e) => { SetCfg("TeclasSoloEnDBD", KeysOnlyInDbd ? "no" : "si"); Feedback(KeysOnlyInDbd ? "las teclas solo funcionan con DBD en primer plano" : "las teclas funcionan en cualquier ventana", Color.Silver, 3000); };
-            keysMenu.DropDownItems.Add(onlyDbdItem);
-            menu.Items.Add(keysMenu);
-            menu.Opening += (s, e) =>
-            {
-                typeItem.Text = "Escribir en vez de hablar… (" + typeKeyName + ")";
-                foreach (var ki in keyItems)
-                {
-                    string v = cfg.Get(ki.Item2.Item2, ki.Item2.Item3);
-                    ki.Item1.Text = ki.Item2.Item1 + ":  " + (v.Length > 0 ? v : "sin tecla") + "  (cambiar…)";
-                }
-                onlyDbdItem.Checked = KeysOnlyInDbd;
-            };
-
+            menu.Opening += (s, e) => { typeItem.Text = "Escribir… (" + typeKeyName + ")"; };
             menu.Items.Add(new ToolStripSeparator());
-            // tamaño de los íconos (los addons y la ofrenda se escalan junto con los perks)
-            var sizeMenu = new ToolStripMenuItem("Tamaño de los íconos");
-            var sizes = new[] { Tuple.Create("Chico", 40), Tuple.Create("Normal", 48), Tuple.Create("Grande", 60), Tuple.Create("Muy grande", 72), Tuple.Create("Enorme", 88), Tuple.Create("Gigante", 104) };
-            foreach (var sz in sizes)
-            {
-                var it = new ToolStripMenuItem(sz.Item1 + " (" + sz.Item2 + " px)") { Tag = sz.Item2 };
-                it.Click += (s, e) =>
-                {
-                    int px = (int)((ToolStripMenuItem)s).Tag;
-                    SetCfg("TamanoPerk", px.ToString());
-                    foreach (ToolStripMenuItem o in sizeMenu.DropDownItems) o.Checked = (int)o.Tag == px;
-                    Relayout();
-                    Feedback("tamaño de íconos: " + ((ToolStripMenuItem)s).Text, Color.Silver, 3000);
-                };
-                sizeMenu.DropDownItems.Add(it);
-            }
-            sizeMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in sizeMenu.DropDownItems) o.Checked = (int)o.Tag == PerkSize; };
-            menu.Items.Add(sizeMenu);
-            // tamaño del plano del mapa
-            var mapSizeMenu = new ToolStripMenuItem("Tamaño del mapa");
-            foreach (var sz in MapSizes)
-            {
-                var it = new ToolStripMenuItem(sz.Item1 + " (" + sz.Item2 + " px)") { Tag = sz.Item2 };
-                it.Click += (s, e) => SetMapSize((int)((ToolStripMenuItem)s).Tag);
-                mapSizeMenu.DropDownItems.Add(it);
-            }
-            mapSizeMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in mapSizeMenu.DropDownItems) o.Checked = (int)o.Tag == MapSize; };
-            menu.Items.Add(mapSizeMenu);
-            var mapOpMenu = new ToolStripMenuItem("Opacidad del mapa");
-            foreach (int pc in MapOpacities)
-            {
-                var it = new ToolStripMenuItem(pc + " %" + (pc == 100 ? " (sin transparencia)" : "")) { Tag = pc };
-                it.Click += (s, e) => SetMapOpacity((int)((ToolStripMenuItem)s).Tag);
-                mapOpMenu.DropDownItems.Add(it);
-            }
-            mapOpMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in mapOpMenu.DropDownItems) o.Checked = (int)o.Tag == MapOpacity; };
-            menu.Items.Add(mapOpMenu);
-            // escala de todo el widget (iconos, letras y nombre del killer a la vez)
-            var scaleMenu = new ToolStripMenuItem("Escala general");
-            foreach (int pc in new[] { 50, 60, 75, 90, 100, 115, 130, 150, 175, 200 })
-            {
-                var it = new ToolStripMenuItem(pc + " %") { Tag = pc };
-                it.Click += (s, e) =>
-                {
-                    SetCfg("Escala", ((int)((ToolStripMenuItem)s).Tag).ToString());
-                    MakeFonts();
-                    Relayout();
-                    Feedback("escala: " + ((ToolStripMenuItem)s).Text, Color.Silver, 3000);
-                };
-                scaleMenu.DropDownItems.Add(it);
-            }
-            scaleMenu.DropDownOpening += (s, e) => { foreach (ToolStripMenuItem o in scaleMenu.DropDownItems) o.Checked = (int)o.Tag == cfg.GetInt("Escala", 100); };
-            menu.Items.Add(scaleMenu);
-            var visMenu = new ToolStripMenuItem("Mostrar el widget");
-            var visAlways = new ToolStripMenuItem("Siempre");
-            var visMenuOnly = new ToolStripMenuItem("Solo con el menú de DBD abierto (ESC)");
-            visAlways.Click += (s, e) => { SetCfg("Visibilidad", "siempre"); Feedback("widget: siempre visible", Color.Silver, 3000); };
-            visMenuOnly.Click += (s, e) => { SetCfg("Visibilidad", "menu"); Feedback("widget: solo con el menú de DBD abierto", Color.Silver, 4000); };
-            visMenu.DropDownItems.Add(visAlways);
-            visMenu.DropDownItems.Add(visMenuOnly);
-            visMenu.DropDownOpening += (s, e) => { visAlways.Checked = !MenuOnly; visMenuOnly.Checked = MenuOnly; };
-            menu.Items.Add(visMenu);
-            menu.Items.Add(KillerMenu());
-            var langMenu = new ToolStripMenuItem("Idioma");
-            langMenu.DropDownItems.Add(LangMenu("Nombres", "IdiomaNombres", "en"));
-            langMenu.DropDownItems.Add(LangMenu("Descripciones", "IdiomaDescripciones", "es"));
-            menu.Items.Add(langMenu);
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Abrir configuración", null, (s, e) => { try { Process.Start("notepad.exe", "\"" + Path.Combine(dir, "config.ini") + "\""); } catch { } });
-            menu.Items.Add("Editar apodos", null, (s, e) => { try { st.ReloadAliases(); Process.Start("notepad.exe", "\"" + Path.Combine(dir, "apodos.txt") + "\""); } catch { } });
-            menu.Items.Add("Abrir carpeta", null, (s, e) => { try { Process.Start("explorer.exe", "\"" + dir + "\""); } catch { } });
-            menu.Items.Add("-");
             menu.Items.Add("Buscar actualización", null, (s, e) => { if (updating) return; Feedback("Buscando actualización…", Color.FromArgb(200, 200, 210), 4000); CheckUpdate(true); });
             menu.Items.Add("Salir", null, (s, e) => Close());
             tray.ContextMenuStrip = menu;
@@ -5147,6 +5622,7 @@ Puerto=8765
 
         void Changed(string what)
         {
+            EndSample(); // si llega algo de verdad, el ejemplo se va
             st.Save(Path.Combine(dir, "estado.txt"));
             Feedback(what, Color.FromArgb(150, 220, 150), 5000);
         }
@@ -5156,6 +5632,143 @@ Puerto=8765
         bool keysGate;
         bool KeysOnlyInDbd { get { return !Regex.IsMatch(cfg.Get("TeclasSoloEnDBD", "si"), "^(no|n|0|false)$", RegexOptions.IgnoreCase); } }
         bool HotKey(int vk) { return vk != 0 && keysGate && (GetAsyncKeyState(vk) & 0x8000) != 0; }
+
+        // ---- sin relojes fijos ----
+        // "pump" es un reloj de un solo disparo: corre cada 25 ms solo mientras tenes una tecla apretada (o justo
+        // despues de soltarla), y si no, se programa para el proximo vencimiento (que se borre un mensaje, etc.).
+        // Sin nada pendiente queda apagado.
+        System.Windows.Forms.Timer pump, topLater;
+        int pumpDue;
+        volatile bool kickQueued, watchOk;
+        bool steamAuto, cursorShown;
+
+        void Kick()
+        {
+            kickQueued = false;
+            if (pump == null) return;
+            int now = Environment.TickCount;
+            if (pump.Enabled && pumpDue - (now + 25) <= 0) return;
+            pump.Stop(); pump.Interval = 25; pumpDue = now + 25; pump.Start();
+        }
+
+        void PumpTick()
+        {
+            pump.Stop();
+            KeyTick();
+            HoverTick();
+            Schedule();
+        }
+
+        static bool IsMouseVk(int vk) { return vk == 1 || vk == 2 || (vk >= 4 && vk <= 6); }
+
+        void Schedule()
+        {
+            if (pump == null) return;
+            bool boxOpen = typeBox != null && typeBox.Visible;
+            // un boton del mouse como atajo: Windows no avisa sin escuchar cada movimiento, asi que ahi se mira cada 25 ms
+            bool mouseKeys = IsMouseVk(vkType) || IsMouseVk(vkTalk) || IsMouseVk(vkClear) || IsMouseVk(vkHelp) || IsMouseVk(vkNames);
+            bool fast = !watchOk || mouseKeys || typePending || talking || releaseAt >= 0 || clearDown || helpShown || namesDown || (typeKeyDown && !boxOpen);
+            int now = Environment.TickCount, iv;
+            if (fast) iv = 25;
+            else
+            {
+                long best = long.MaxValue;
+                if (micRestartAt >= 0) best = Math.Min(best, (long)(micRestartAt - now));
+                if (feedback.Length > 0) best = Math.Min(best, (long)(feedbackUntil - now));
+                if (heardLine.Length > 0) best = Math.Min(best, (long)(heardUntil - now));
+                if (st.Pick != null) best = Math.Min(best, (long)(st.PickUntil - now));
+                if (hoverE != null && !(tip != null && tip.Visible && tip.Current == hoverE)) best = Math.Min(best, (long)(hoverSince + 260 - now));
+                if (best == long.MaxValue) { pump.Stop(); return; }
+                iv = (int)Math.Max(15, Math.Min(best + 5, 3600000));
+            }
+            if (pump.Enabled && pumpDue - (now + iv) <= 0) return; // ya va a mirar a tiempo
+            pump.Stop(); pump.Interval = iv; pumpDue = now + iv; pump.Start();
+        }
+
+        // gancho de teclado que solo mira (no se traga nada): en su propio hilo, para que el teclado nunca espere a la app
+        IntPtr watchHook;
+        LowLevelKeyboardProc watchProc;
+
+        void StartKeyWatch()
+        {
+            new Thread(() =>
+            {
+                watchProc = WatchProc;
+                watchHook = SetWindowsHookEx(13, watchProc, GetModuleHandle(null), 0);
+                int err = Marshal.GetLastWin32Error();
+                watchOk = watchHook != IntPtr.Zero;
+                try { BeginInvoke((Action)(() => { if (!watchOk) DebugEvent("teclas: sin gancho (error " + err + "), miro cada 25 ms como antes"); Schedule(); })); } catch { }
+                if (watchOk) Application.Run();
+            }) { IsBackground = true, Name = "teclas" }.Start();
+        }
+
+        bool IsOurVk(int v) { return v != 0 && (v == vkType || v == vkTalk || v == vkClear || v == vkHelp || v == vkNames); }
+
+        IntPtr WatchProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0)
+            {
+                int vk = Marshal.ReadInt32(lParam);
+                int g = vk == 0xA0 || vk == 0xA1 ? 0x10 : vk == 0xA2 || vk == 0xA3 ? 0x11 : vk == 0xA4 || vk == 0xA5 ? 0x12 : vk;
+                if ((IsOurVk(vk) || IsOurVk(g)) && !kickQueued)
+                {
+                    kickQueued = true;
+                    try { BeginInvoke((Action)Kick); } catch { kickQueued = false; }
+                }
+            }
+            return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+        }
+
+        // avisos de Windows: ventana del frente, juego minimizado, cursor (aparece / desaparece / cambia / se mueve)
+        delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+        [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc fn, uint pid, uint tid, uint flags);
+        [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr h);
+        WinEventProc winProc; // referencia viva
+        IntPtr moveHook;
+
+        void StartWinEvents()
+        {
+            winProc = OnWinEvent;
+            SetWinEventHook(0x0003, 0x0003, IntPtr.Zero, winProc, 0, 0, 0); // ventana del frente
+            SetWinEventHook(0x0016, 0x0016, IntPtr.Zero, winProc, 0, 0, 0); // ventana minimizada
+            SetWinEventHook(0x8002, 0x8003, IntPtr.Zero, winProc, 0, 0, 0); // algo aparece / desaparece (filtrado: el cursor)
+            SetWinEventHook(0x800C, 0x800C, IntPtr.Zero, winProc, 0, 0, 0); // cambia la forma del cursor
+        }
+
+        // los movimientos del mouse solo se escuchan con el cursor visible y la lista en pantalla (para la descripcion
+        // al pasar el mouse); en partida DBD esconde el cursor y no llega nada
+        void SetMoveHook(bool on)
+        {
+            if (on == (moveHook != IntPtr.Zero)) return;
+            if (on) moveHook = SetWinEventHook(0x800B, 0x800B, IntPtr.Zero, winProc, 0, 0, 0);
+            else { UnhookWinEvent(moveHook); moveHook = IntPtr.Zero; }
+        }
+
+        void OnWinEvent(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
+        {
+            try
+            {
+                if (ev == 0x0003 || ev == 0x0016)
+                {
+                    if (typeBox != null && typeBox.Visible) KeyTick(); // el cuadro se cierra si el juego dejo de estar al frente
+                    TopAll();
+                    topLater.Stop(); topLater.Start(); // y otra vez en un rato, por si el juego se pone encima al arrancar
+                    if (steamAuto && steamProc == null && DbdInFront()) SteamTick();
+                    HoverTick();
+                    return;
+                }
+                if (idObject != -9) return; // solo el cursor
+                if (ev == 0x800B && !cursorShown) return;
+                HoverTick();
+            }
+            catch { }
+        }
+
+        void TopAll()
+        {
+            if (Visible) SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+            if (mapWin != null && mapWin.Visible) SetWindowPos(mapWin.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+        }
 
         void KeyTick()
         {
@@ -5168,9 +5781,10 @@ Puerto=8765
                 var fgNow = GetForegroundWindow();
                 int nowT = Environment.TickCount;
                 if (typeFromGame && typePrevFg != IntPtr.Zero && (fgNow != typePrevFg || IsIconic(typePrevFg))) { HideTypeBox("el juego dejó de estar al frente"); return; }
-                if (!typeFromGame && nowT - typeOpenedAt > 700)
+                if (!typeFromGame)
                 {
-                    if (typeRefFg == IntPtr.Zero) typeRefFg = fgNow;
+                    // abierto desde el menu: los primeros 0,7 s el foco se acomoda; despues, si cambia, se cierra
+                    if (nowT - typeOpenedAt <= 700) typeRefFg = fgNow;
                     else if (fgNow != typeRefFg) { HideTypeBox("cambió la ventana del frente"); return; }
                 }
                 return;
@@ -5468,8 +6082,11 @@ Puerto=8765
             Relayout();
         }
 
+        bool inVis;
         void Relayout()
         {
+            if (!inVis) { inVis = true; try { UpdateVisibility(cursorShown); } finally { inVis = false; } }
+            Schedule();
             items = new List<Item>();
             texts = new List<TextItem>();
             var flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
@@ -5644,6 +6261,7 @@ Puerto=8765
             int wx = right ? scr.Right - mx - size.Width : scr.Left + mx;
             int wy = pos.Contains("abajo") ? scr.Bottom - my - size.Height : scr.Top + my;
             Bounds = new Rectangle(wx, wy, size.Width, size.Height);
+            if (typeBox != null && typeBox.Visible) PlaceTypeBox();
             Invalidate();
         }
 
@@ -5837,6 +6455,13 @@ Puerto=8765
                 // --ofrendas salida.txt : lista de ofrendas con su icono (depuracion)
                 var cat = Catalog.Load(Path.Combine(dir, "datos"));
                 File.WriteAllLines(args[1], cat.Offerings.Select(o => o.Name + " | " + o.Rarity + " | " + (o.Icon ?? "SIN ICONO") + " | " + string.Join(" ", o.Desc.Take(12))), Encoding.UTF8);
+                return;
+            }
+            if (args.Length >= 2 && args[0] == "--icono")
+            {
+                // --icono app.ico [muestra.png] : genera el icono del .exe (y una hoja con los tamaños para mirarlo)
+                Overlay.WriteIco(args[1]);
+                if (args.Length >= 3) { int[] ss = { 16, 24, 32, 48, 64, 128, 256 }; var sheet = new Bitmap(ss.Sum() + 10 * ss.Length + 10, 276); using (var g = Graphics.FromImage(sheet)) { g.Clear(Color.FromArgb(40, 40, 46)); int x = 10; foreach (var s in ss) { using (var b = Overlay.Logo(s, Color.FromArgb(190, 22, 34))) g.DrawImage(b, x, 10); if (s <= 64) using (var b = Overlay.Logo(s, Color.FromArgb(40, 150, 70))) g.DrawImage(b, x, 200); x += s + 10; } } sheet.Save(args[2]); }
                 return;
             }
             if (args.Length >= 2 && args[0] == "--steam-watch")

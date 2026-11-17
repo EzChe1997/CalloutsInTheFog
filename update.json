@@ -1,8 +1,8 @@
 {
-    "version":  38,
-    "notes":  "Mapas con callouts de hens333 (tamano y opacidad ajustables, se comparten con la sala), perks sugeridos al abrir el cuadro vacio segun lo visto, atajo Shift+T en pantalla, creditos y LEEME actualizado",
-    "date":  "2026-11-16 19:41",
+    "version":  39,
+    "notes":  "Ventana de Configuración con estilo DBD (doble clic en el ícono), ícono nuevo, mapa solo con menú ESC, app más liviana (sin relojes), el cuadro de Shift+T ya no se pisa con el aviso",
+    "date":  "2026-11-16 22:02",
     "files":  {
-                  "DbdOverlay.exe":  "5457ace07173dbf060056a69bfa00dd816bbb8b4a3e97f4b9395a12cadd650e9"
+                  "DbdOverlay.exe":  "806dbf66175607ceea61ba91960b07588be237777316dc0dbde0caeaa96e6cd7"
               }
 }

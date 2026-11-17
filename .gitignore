@@ -13,3 +13,7 @@ dist/
 *.zip
 *.old
 DbdOverlay-test.exe
+
+# locales de cada PC (planos bajados e historial de partidas)
+mapas/
+vistos.txt

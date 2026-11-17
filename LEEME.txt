@@ -6,18 +6,18 @@ DBD Overlay - perks y addons del killer en pantalla
    (pasa porque el programa no está firmado).
    La primera vez baja la lista de perks/addons de internet (unos segundos).
 
-2) Aparece un ícono rojo "D" junto al reloj (puede estar escondido en la flechita ^).
-   Clic derecho ahí está todo el menú.
+2) Aparece un ícono rojo con un gancho junto al reloj (puede estar escondido en la flechita ^).
+   Doble clic: Configuración (todo lo que se puede cambiar). Clic derecho: lo de uso rápido.
 
 3) Ver lo mismo que tus amigos: NO hay que hacer nada.
    Si juegan DBD por Steam y están en el mismo grupo, todos los que tengan la app abierta
    ven la misma lista automáticamente. Lo que anota uno aparece en todas las pantallas
    con su nombre de Steam.
-   (Si alguien juega por Epic o consola: ícono "D" -> Sala compartida -> "Crear sala con código"
+   (Si alguien juega por Epic o consola: clic derecho en el ícono -> Sala compartida -> "Crear sala con código"
    y los demás "Unirse con código…").
 
 4) Para anotar por voz hace falta Whisper (reconocimiento de voz, gratis, funciona sin internet):
-   ícono "D" -> "Instalar voz (Whisper)…".
+   Configuración -> Voz -> "Instalar Whisper…".
    Con placa NVIDIA baja unos 860 MB; sin NVIDIA unos 200 MB (entiende un poco más lento).
    Sin Whisper la app funciona igual en modo "solo ver".
 
@@ -26,13 +26,15 @@ DBD Overlay - perks y addons del killer en pantalla
    - Mantener Shift+V y hablar (si tenés la voz): "tiene Pain Resonance y Deadlock", "es la Huntress"...
    - Mantener Shift+H: ayuda con todos los comandos.
    - Mantener Shift+G 1 segundo: borrar todo (se borra para todo el grupo).
-   (Las teclas se cambian en ícono "D" -> Teclas.)
+   (Las teclas se cambian en Configuración -> Teclas.)
 
-Configuración (teclas, micrófono, posición, tamaño): ícono "D" -> "Abrir configuración".
+Configuración (lista, mapa, teclas, sala, voz, idioma): doble clic en el ícono.
+Si tu PC es justa: dejá la voz apagada y anotá con Shift+T; la lista y el mapa se pueden mostrar
+solo con el menú ESC abierto (Configuración -> Lista / Mapa).
 Overlay: el juego tiene que estar en "Pantalla completa en ventana" (Windowed Fullscreen / Borderless)
 para que se vea encima.
 
-Actualizaciones: la app se actualiza sola (revisa al abrir, o con ícono "D" -> "Buscar actualización")
+Actualizaciones: la app se actualiza sola (revisa al abrir, o con clic derecho en el ícono -> "Buscar actualización")
 y se reinicia sin perder la lista. Solo acepta versiones firmadas por quien publica el proyecto.
 
 Créditos:
