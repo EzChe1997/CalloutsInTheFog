@@ -1,8 +1,8 @@
 {
-    "version":  42,
-    "notes":  "Guía de la primera vez con GIFs (también en Configuración → General). Ayuda de Shift+H más clara. Arreglos de la versión en inglés.",
-    "date":  "2026-11-17 01:18",
+    "version":  43,
+    "notes":  "Rueda para anotar con el mouse (Configuración → Rueda): perks por lo que hacen con los más usados primero, descripciones y colores por tier; killers por tipo de poder con retratos; mapas por reino con fotos. Se abre con una tecla y se elige con clic. Arreglado: el mapa no se veía con la opacidad en 100 %.",
+    "date":  "2026-11-17 22:33",
     "files":  {
-                  "DbdOverlay.exe":  "b4dc92fe28ec2795f91f2f47bfbb7e32bbf06d123501c2efb14f6d6f0c8dc776"
+                  "DbdOverlay.exe":  "7143d66a074d0565bd1efd5d24dbeeddf8f141ef168a7a9b5ca1547d041f0b36"
               }
 }

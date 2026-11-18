@@ -310,6 +310,7 @@ Puerto=8765
     class Entry
     {
         public Kind K; public string Name; public string Killer; public string Rarity;
+        public bool Secret, Synth; // Synth: ofrenda "de un tipo" armada por la app (de mapa, niebla, ganchos, cofres)                                  // ofrenda que el juego muestra como secreta (el dorso de la carta), sin las de mapa
         public string Icon;                                  // archivo en deadbydaylight.wiki.gg/images/
         public HashSet<string> Desc = new HashSet<string>(); // palabras de la descripcion en espanol
         public string NameEs, Info, InfoEn;                  // nombre en espanol y descripciones (espanol / ingles) para leer (hover)
@@ -634,7 +635,7 @@ Puerto=8765
             Dictionary<string, object> perksEs = null;
             try { perksEs = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "perks_es.json", "https://dbd.tricky.lol/api/perks?role=killer&locale=es")); }
             catch { }
-            var perkIcons = KeyMap(WikiList(dir, "wiki_perks2.txt", "IconPerks_|T_UI_iconsPerks_"));
+            var perkIcons = KeyMap(WikiList(dir, "wiki_perks3.txt", "IconPerks_|T_UI_iconsPerks_|IconsPerks_"));
             var addonIcons = KeyMap(WikiList(dir, "wiki_addons2.txt", "IconAddon_|T_UI_iconAddon_"));
 
             var c = new Catalog();
@@ -646,6 +647,12 @@ Puerto=8765
                 if (d == null) continue;
                 string name = WebUtility.HtmlDecode(S(d, "name"));
                 var e = new Entry { K = Kind.Killer, Name = name };
+                string portrait = S(d, "image").Split('/').Last();
+                // en el wiki algunos tienen otro nombre que en el juego
+                portrait = Regex.Replace(portrait, "^T_UI_", "");
+                string fix;
+                if (Overlay.PortraitFix.TryGetValue(name, out fix)) portrait = fix;
+                if (portrait.Length > 0) e.Icon = portrait;
                 charName[kv.Key] = name;
                 e.AddKey(name);
                 string shortName = Regex.Replace(name, "^The ", "");
@@ -712,7 +719,7 @@ Puerto=8765
                 Dictionary<string, object> offsEs = null;
                 try { offsEs = js.Deserialize<Dictionary<string, object>>(Fetch(dir, "offerings_es.json", "https://dbd.tricky.lol/api/offerings?locale=es")); }
                 catch { }
-                var offIcons = KeyMap(WikiList(dir, "wiki_ofrendas2.txt", "IconFavors_|T_UI_iconsFavors_"));
+                var offIcons = KeyMap(WikiList(dir, "wiki_ofrendas3.txt", "IconFavors_|T_UI_iconsFavors_|IconsFavors_"));
                 foreach (var kv in offs)
                 {
                     var d = kv.Value as Dictionary<string, object>;
@@ -720,7 +727,9 @@ Puerto=8765
                     string name = WebUtility.HtmlDecode(S(d, "name"));
                     if (name.Length == 0 || name.StartsWith("@#")) continue;
                     name = Regex.Replace(name, @"\b([A-Z])([A-Z]+)\b", m => m.Groups[1].Value + m.Groups[2].Value.ToLowerInvariant()); // "TERRORMISU" -> "Terrormisu"
-                    var e = new Entry { K = Kind.Offering, Name = name, Killer = "", Rarity = S(d, "rarity") };
+                    var e = new Entry { K = Kind.Offering, Name = name, Killer = "", Rarity = S(d, "rarity"),
+                                        // secreta y que no sea de mapa ("...sent to Coldwind Farm"): el mapa se ve al cargar
+                                        Secret = Regex.IsMatch(S(d, "description"), @"\bSecret\b") && !Regex.IsMatch(S(d, "description"), @"\bsent\b|take on the role", RegexOptions.IgnoreCase) };
                     e.AddKey(name);
                     foreach (var al in OfferingAliases)
                         if (Txt.Norm(name).Contains(al[0])) for (int i = 1; i < al.Length; i++) e.AddKey(al[i]);
@@ -750,6 +759,30 @@ Puerto=8765
             foreach (var k in new[] { "ofrenda secreta", "secreta", "secreto", "secret", "secret offering", "oculta", "escondida", "desconocida", "no se cual" })
                 secret.AddKey(k);
             c.Offerings.Add(secret);
+            // ofrenda de mapa: "el killer nos trajo a este mapa" (cual de todas no importa: el mapa ya se ve)
+            var mapOff = new Entry { K = Kind.Offering, Name = "Map offering", Killer = "", Rarity = "mapa", NameEs = "Ofrenda de mapa",
+                                     Info = "El killer quemó una ofrenda de mapa: los trajo a este mapa a propósito (lo conoce bien).",
+                                     InfoEn = "The Killer burned a map offering: they brought you to this map on purpose (they know it well)." };
+            foreach (var k in new[] { "ofrenda de mapa", "ofrenda mapa", "map offering", "mapa del killer" })
+                mapOff.AddKey(k);
+            mapOff.Synth = true;
+            mapOff.Icon = "IconItems_CrypticMap.png"; // el Mapa críptico del juego (si no baja, dice MAPA)
+            c.Offerings.Add(mapOff);
+            // niebla / ganchos / cofres: en la partida no se nota cual de las 3-4 fue, solo que hay mas niebla, etc.
+            Func<string, string, string, string, string, string, string[], Entry> synth = (en, es, tag, info, infoEn, iconOf, keys) =>
+            {
+                var src = c.Offerings.FirstOrDefault(o => o.Name == iconOf);
+                var x = new Entry { K = Kind.Offering, Name = en, NameEs = es, Killer = "", Rarity = tag, Synth = true, Info = info, InfoEn = infoEn, Icon = src != null ? src.Icon : null };
+                foreach (var k in keys) x.AddKey(k);
+                c.Offerings.Add(x);
+                return x;
+            };
+            synth("Fog offering", "Ofrenda de niebla", "niebla", "El killer quemó una ofrenda de niebla: hay más niebla.", "The Killer burned a fog offering: there is more fog.",
+                  "Murky Reagent", new[] { "ofrenda de niebla", "niebla", "mas niebla", "fog offering", "fog", "more fog" });
+            synth("Hook offering", "Ofrenda de ganchos", "ganchos", "El killer quemó un oak: los ganchos están más cerca entre sí.", "The Killer burned an oak: hooks are closer together.",
+                  "Putrid Oak", new[] { "ofrenda de ganchos", "ganchos cerca", "ganchos mas cerca", "hook offering", "hooks closer", "oak" });
+            synth("Chest offering", "Ofrenda de cofres", "cofres", "El killer quemó una moneda: hay menos cofres.", "The Killer burned a coin: there are fewer chests.",
+                  "Cut Coin", new[] { "ofrenda de cofres", "menos cofres", "chest offering", "fewer chests", "coin" });
 
             // mapas: los de hens333.com/callouts (imagenes con el sistema de reloj, hechas por Lethia). La lista se trae
             // de esa pagina solo si no esta guardada o si salio un parche con cambios de mapas; la imagen se baja al elegir el mapa.
@@ -762,6 +795,7 @@ Puerto=8765
                     var names = f[0].Split('|').Where(x => x.Trim().Length > 0).ToList();
                     if (names.Count == 0 || c.MapFiles.ContainsKey(names[0])) continue;
                     var e = new Entry { K = Kind.Offering, Name = names[0], Killer = "", Action = "mapa:" + names[0], ActionTag = f[2] };
+                    foreach (var nm in names) { string mi; if (e.Icon == null && Overlay.MapPhoto.TryGetValue(Overlay.Bare(nm), out mi)) e.Icon = "IconMap_" + mi + ".png"; }
                     foreach (var nm in names) { e.AddKey(nm); if (f[2].Length > 0) e.AddKey(f[2] + " " + nm); e.AddKey(Regex.Replace(nm, @"^The\s+", "")); }
                     if (names[0].StartsWith("Police Station")) { e.AddKey("rpd"); e.AddKey("comisaria"); e.AddKey("raccoon city " + names[0]); }
                     if (names[0].StartsWith("Preschool")) foreach (var nm in names) { e.AddKey("badham " + nm); e.AddKey("badham " + Regex.Replace(nm, @"^Preschools*", "")); }
@@ -1274,6 +1308,7 @@ Puerto=8765
 
         // ---- "no, borra eso": deshace el ultimo cambio y no repite la misma eleccion
         object undoSnap; List<Entry> undoAdded = new List<Entry>(); string undoAlias;
+        public bool CanUndo { get { return undoSnap != null; } }
         HashSet<Entry> exclude = new HashSet<Entry>();
         string learnedAlias; // apodo aprendido en el ultimo Apply (para olvidarlo si se deshace)
 
@@ -1346,6 +1381,7 @@ Puerto=8765
                 if (undoSnap == null) return L("no hay nada para deshacer", "nothing to undo");
                 Restore(undoSnap);
                 if (undoAlias != null) RemoveAlias(undoAlias);
+                if (undoAdded == null) undoAdded = new List<Entry>();
                 exclude = new HashSet<Entry>(undoAdded.Where(x => x.Rarity != "nota"));
                 string what = undoAdded.Count > 0 ? string.Join(", ", undoAdded.Select(x => x.Name)) : L("el último cambio", "the last change");
                 undoSnap = null; undoAdded = new List<Entry>(); undoAlias = null;
@@ -2508,7 +2544,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 42;
+        public const int AppVersion = 43;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/CalloutsInTheFog/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2793,7 +2829,7 @@ Puerto=8765
             var e = cat.Maps.FirstOrDefault(m => m.Name == name);
             mapWin.Set(name, e != null ? e.ActionTag : "", files, MapSize);
             mapWin.Place(cfg.GetInt("MapaX", 20), cfg.GetInt("MapaY", 20));
-            mapWin.Opacity = MapOpacity / 100.0;
+            mapWin.Opacity = SafeOp(MapOpacity / 100.0);
             UpdateMapVisibility(cursorShown);
             if (mapWin.Visible) SetWindowPos(mapWin.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
             mapWin.Invalidate();
@@ -2820,12 +2856,14 @@ Puerto=8765
         }
 
         static readonly int[] MapOpacities = { 30, 45, 60, 75, 90, 100 };
+        // las ventanas que dejan pasar los clics son "layered": con opacidad 100 % exacta WinForms no le pone el alfa y queda invisible
+        internal static double SafeOp(double v) { return Math.Max(0.05, Math.Min(0.996, v)); }
         int MapOpacity { get { return Math.Max(15, Math.Min(100, cfg.GetInt("OpacidadMapa", 90))); } }
         public void SetMapOpacity(int pc)
         {
             pc = Math.Max(15, Math.Min(100, pc));
             SetCfg("OpacidadMapa", pc.ToString());
-            if (mapWin != null) mapWin.Opacity = pc / 100.0;
+            if (mapWin != null) mapWin.Opacity = SafeOp(pc / 100.0);
             Feedback(L("opacidad del mapa: ", "map opacity: ") + pc + " %", Color.Silver, 3000);
         }
         public void StepMapOpacity(int dir)
@@ -2843,12 +2881,114 @@ Puerto=8765
             if (share && room != null) room.Publish(Stamp(new Dictionary<string, object> { { "map", "" } }));
         }
 
+        // ---- marcas en el plano (prototipo, solo Coal Tower): un punto que ven todos + donde queda, en palabras ----
+        internal bool MapMarksOn { get { return cfg.Get("MapaMarcas", "no") == "si"; } }
+        internal class MapRef { public string Name; public float X, Y; public MapRef(string n, float x, float y) { Name = n; X = x; Y = y; } }
+        internal class MapGuide { public MapRef Main, Shack, Side; public List<MapRef> Others = new List<MapRef>(), Clock = new List<MapRef>(); public RectangleF Area; }
+        // coordenadas en pixeles del plano de hens (900 de ancho, como queda guardado)
+        internal static readonly Dictionary<string, MapGuide> MapGuides = new Dictionary<string, MapGuide> {
+            { "Coal Tower", new MapGuide {
+                Area = new RectangleF(140, 110, 615, 860),
+                Main = new MapRef("Main", 449, 251), Shack = new MapRef("Shack", 504, 880), Side = new MapRef("WT", 354, 627),
+                Others = new List<MapRef> { new MapRef("WT", 354, 627) },
+                Clock = new List<MapRef> { new MapRef("12", 455, 145), new MapRef("1", 690, 165), new MapRef("2", 703, 322), new MapRef("3", 704, 480),
+                    new MapRef("4", 697, 637), new MapRef("5", 682, 790), new MapRef("6", 352, 915), new MapRef("7", 212, 778), new MapRef("8", 212, 612),
+                    new MapRef("9", 212, 467), new MapRef("10", 222, 312), new MapRef("11", 222, 168) } } } };
+        static float Dist(MapRef r, float x, float y) { return (float)Math.Sqrt((r.X - x) * (r.X - x) + (r.Y - y) * (r.Y - y)); }
+        // "entre Main y Shack, del lado de WT, contra el borde" (+ el numero del reloj, para quien lo use)
+        internal static string DescribeSpot(MapGuide g, float x, float y)
+        {
+            if (!g.Area.Contains(x, y)) return null;
+            float size = (float)Math.Sqrt(g.Area.Width * g.Area.Width + g.Area.Height * g.Area.Height);
+            var parts = new List<string>();
+            MapRef near = null; float nd = float.MaxValue;
+            foreach (var r in new[] { g.Main, g.Shack }.Concat(g.Others)) { float d = Dist(r, x, y); if (d < nd) { nd = d; near = r; } }
+            if (nd < size * 0.07f) parts.Add(L("en ", "at ") + near.Name);
+            else
+            {
+                float ax = g.Shack.X - g.Main.X, ay = g.Shack.Y - g.Main.Y, len2 = ax * ax + ay * ay, len = (float)Math.Sqrt(len2);
+                float t = ((x - g.Main.X) * ax + (y - g.Main.Y) * ay) / len2;
+                if (t < -0.1f) parts.Add(L("detrás de Main (lejos de Shack)", "behind Main (away from Shack)"));
+                else if (t < 0.3f) parts.Add(L("cerca de Main", "near Main"));
+                else if (t <= 0.7f) parts.Add(L("entre Main y Shack", "between Main and Shack"));
+                else if (t <= 1.1f) parts.Add(L("cerca de Shack", "near Shack"));
+                else parts.Add(L("detrás de Shack (lejos de Main)", "behind Shack (away from Main)"));
+                float side = ((x - g.Main.X) * ay - (y - g.Main.Y) * ax) / len;
+                if (Math.Abs(side) <= size * 0.1f) parts.Add(L("por el medio", "through the middle"));
+                else if (g.Side != null)
+                {
+                    float rs = (g.Side.X - g.Main.X) * ay - (g.Side.Y - g.Main.Y) * ax;
+                    parts.Add(Math.Sign(rs) == Math.Sign(side) ? L("del lado de ", "on the side of ") + g.Side.Name : L("del lado opuesto a ", "on the side away from ") + g.Side.Name);
+                }
+            }
+            float m = size * 0.085f;
+            if (x - g.Area.Left < m || g.Area.Right - x < m || y - g.Area.Top < m || g.Area.Bottom - y < m) parts.Add(L("contra el borde", "against the edge"));
+            string s = string.Join(", ", parts);
+            var ck = g.Clock.OrderBy(r => Dist(r, x, y)).FirstOrDefault();
+            if (ck != null && Dist(ck, x, y) < size * 0.15f) s += "   (" + ck.Name + ")";
+            return s.Substring(0, 1).ToUpperInvariant() + s.Substring(1);
+        }
+        // marca propia: la ven todos los de la sala
+        internal void PublishMark(float x, float y, bool clear)
+        {
+            if (mapShown == null) return;
+            if (room != null) room.Publish(Stamp(new Dictionary<string, object> { { "mark", clear ? "" : ((int)x) + "," + ((int)y) }, { "mapn", mapShown } }));
+            if (!clear) DebugEvent("marca en el plano: " + DescribeSpot(MapGuides[mapShown], x, y));
+        }
+
         class MapWindow : Form
         {
             readonly Overlay ov;
             string title = "", sub = "";
             List<string> files = new List<string>();
-            int side = 320, px, py;
+            int side = 320, px, py, imgH = 320;
+            const int Strip = 44;
+            // marcas por persona (una cada uno), en pixeles del plano
+            readonly Dictionary<string, PointF> marks = new Dictionary<string, PointF>();
+            string hoverText, lastText;
+            MapGuide Guide { get { MapGuide g; return ov.MapMarksOn && MapGuides.TryGetValue(title, out g) ? g : null; } }
+            [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+            [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
+            // con el cursor visible (menu ESC) y las marcas activadas, el plano recibe clics; si no, el mouse lo atraviesa como siempre
+            public void SetClickable(bool on)
+            {
+                on = on && Guide != null;
+                int ex = GetWindowLong(Handle, -20), nx = on ? ex & ~0x20 : ex | 0x20;
+                if (nx != ex) SetWindowLong(Handle, -20, nx);
+                if (!on && hoverText != null) { hoverText = null; Invalidate(); }
+            }
+            public void SetMark(string who, PointF? p)
+            {
+                if (p == null) marks.Remove(who); else marks[who] = p.Value;
+                var g = Guide;
+                lastText = p == null || g == null ? null : who + ": " + DescribeSpot(g, p.Value.X, p.Value.Y);
+                Invalidate();
+            }
+            PointF ToMap(Point pt)
+            {
+                var img = files.Count > 0 ? ov.MapImage(files[0]) : null;
+                if (img == null) return new PointF(-1, -1);
+                return new PointF((pt.X - 6) * img.Width / (float)side, (pt.Y - 6) * img.Height / (float)imgH);
+            }
+            protected override void OnMouseMove(MouseEventArgs e)
+            {
+                var g = Guide; if (g == null) return;
+                var p = ToMap(e.Location);
+                string t = DescribeSpot(g, p.X, p.Y);
+                if (t != hoverText) { hoverText = t; Invalidate(); }
+            }
+            protected override void OnMouseLeave(EventArgs e) { if (hoverText != null) { hoverText = null; Invalidate(); } }
+            protected override void OnMouseDown(MouseEventArgs e)
+            {
+                var g = Guide; if (g == null) return;
+                string me = L("Vos", "You");
+                if (e.Button == MouseButtons.Right) { SetMark(me, null); ov.PublishMark(0, 0, true); return; }
+                if (e.Button != MouseButtons.Left) return;
+                var p = ToMap(e.Location);
+                if (DescribeSpot(g, p.X, p.Y) == null) return;
+                SetMark(me, p);
+                ov.PublishMark(p.X, p.Y, false);
+            }
             public MapWindow(Overlay o)
             {
                 ov = o;
@@ -2861,7 +3001,7 @@ Puerto=8765
             {
                 get { var cp = base.CreateParams; cp.ExStyle |= 0x80000 | 0x20 | 0x80 | 0x8 | 0x08000000; return cp; } // en capas, el mouse lo atraviesa, sin foco
             }
-            public void Set(string t, string s, List<string> f, int size) { title = t; sub = s; files = f; side = Math.Max(160, Math.Min(900, size)); }
+            public void Set(string t, string s, List<string> f, int size) { if (t != title) { marks.Clear(); lastText = hoverText = null; } title = t; sub = s; files = f; side = Math.Max(160, Math.Min(900, size)); }
             public void Place(int x, int y) { px = x; py = y; Fit(); }
             // alto segun la imagen (las de hens no son cuadradas)
             public void Fit()
@@ -2869,15 +3009,41 @@ Puerto=8765
                 var img = files.Count > 0 ? ov.MapImage(files[0]) : null;
                 int h = img != null ? side * img.Height / Math.Max(1, img.Width) : side;
                 var scr = Screen.PrimaryScreen.Bounds;
-                Bounds = new Rectangle(scr.Left + px, scr.Top + py, side + 12, h + 12);
+                imgH = h;
+                Bounds = new Rectangle(scr.Left + px, scr.Top + py, side + 12, h + 12 + (Guide != null ? Strip : 0));
             }
             protected override void OnPaint(PaintEventArgs e)
             {
                 var g = e.Graphics;
                 g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                 var img = files.Count > 0 ? ov.MapImage(files[0]) : null;
-                var r = new Rectangle(6, 6, side, Height - 12);
+                var r = new Rectangle(6, 6, side, imgH);
                 if (img != null) g.DrawImage(img, r);
+                var gd = Guide;
+                if (gd != null && img != null)
+                {
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    foreach (var kv in marks)
+                    {
+                        float mx = 6 + kv.Value.X * side / img.Width, my = 6 + kv.Value.Y * imgH / img.Height;
+                        using (var b = new SolidBrush(Color.FromArgb(90, 230, 40, 50))) g.FillEllipse(b, mx - 16, my - 16, 32, 32);
+                        using (var b = new SolidBrush(Color.FromArgb(230, 40, 50))) g.FillEllipse(b, mx - 7, my - 7, 14, 14);
+                        using (var p = new Pen(Color.White, 2.5f)) g.DrawEllipse(p, mx - 7, my - 7, 14, 14);
+                        using (var f = new Font("Segoe UI", 8.5f, FontStyle.Bold))
+                        {
+                            int tw = TextRenderer.MeasureText(kv.Key, f).Width;
+                            int lx = mx + 10 + tw > side + 4 ? (int)mx - 10 - tw : (int)mx + 10; // cerca del borde derecho: a la izquierda
+                            TextRenderer.DrawText(g, kv.Key, f, new Point(lx + 1, (int)my - 7), Color.Black);
+                            TextRenderer.DrawText(g, kv.Key, f, new Point(lx, (int)my - 8), Color.White);
+                        }
+                    }
+                    // abajo: donde esta el mouse (al pasar) o la ultima marca, en palabras
+                    var sr = new Rectangle(6, 6 + imgH + 2, side, Strip - 4);
+                    string txt = hoverText ?? lastText ?? L("Clic en el plano: marcar para todos · derecho: borrar tu marca", "Click the map: mark for everyone · right: remove your mark");
+                    using (var f = new Font("Segoe UI", hoverText != null || lastText != null ? 9.5f : 8.5f, hoverText != null || lastText != null ? FontStyle.Bold : FontStyle.Regular))
+                        TextRenderer.DrawText(g, txt, f, sr, hoverText != null ? Color.FromArgb(235, 235, 240) : lastText != null ? Color.FromArgb(255, 150, 150) : Color.FromArgb(150, 150, 165),
+                            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+                }
                 else using (var fs = new Font("Segoe UI", 9f))
                     TextRenderer.DrawText(g, ov.MapError != null ? L("No pude bajar el plano de ", "Couldn't download the map of ") + title + "\n(" + ov.MapError + ")" : L("cargando ", "loading ") + title + "…", fs, r, Color.FromArgb(160, 160, 175), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
                 using (var pen = new Pen(Color.FromArgb(70, 70, 90))) g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
@@ -2959,7 +3125,7 @@ Puerto=8765
                         Directory.CreateDirectory(folder);
                         var data = Catalog.HttpBytes("https://deadbydaylight.wiki.gg/images/" + Uri.EscapeDataString(file));
                         File.WriteAllBytes(path, data);
-                        BeginInvoke((Action)(() => { iconPending.Remove(file); Relayout(); }));
+                        BeginInvoke((Action)(() => { iconPending.Remove(file); Relayout(); if (wheelWin != null && !wheelWin.IsDisposed && wheelWin.Visible) wheelWin.RefreshIcons(); }));
                     }
                     catch { } // si falla queda sin icono (no reintenta en esta sesion)
                 }) { IsBackground = true }.Start();
@@ -3004,7 +3170,7 @@ Puerto=8765
             // fondo transparente: la caja oscura se dibuja solo detras de los textos (los iconos quedan sueltos)
             BackColor = KeyColor;
             TransparencyKey = KeyColor;
-            Opacity = cfg.GetD("Opacidad", 0.85);
+            Opacity = SafeOp(cfg.GetD("Opacidad", 0.85));
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
             MakeFonts();
 
@@ -3014,6 +3180,7 @@ Puerto=8765
             SetTypeKey(cfg.Get("TeclaEscribir", "Shift+T"));
             ParseCombo(cfg.Get("TeclaNombres", "Shift+M"), out vkNames, out namesSh, out namesCt, out namesAl, out tn);
             ParseCombo(cfg.Get("TeclaAyuda", "Shift+H"), out vkHelp, out helpSh, out helpCt, out helpAl, out tn);
+            ParseCombo(cfg.Get("TeclaRueda", "Shift+R"), out vkWheel, out wheelSh, out wheelCt, out wheelAl, out tn);
             showNames = Regex.IsMatch(cfg.Get("Nombres", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase);
             Lang.Init(cfg.Get("IdiomaApp", "auto"));
             port = cfg.GetInt("Puerto", 8765);
@@ -3344,6 +3511,7 @@ Puerto=8765
 
         string DName(Entry e)
         {
+            if (e.Synth) return L(e.NameEs, e.Name); // no es del juego: va en el idioma de la app
             if (NamesEs) return string.IsNullOrEmpty(e.NameEs) ? e.Name : e.NameEs;
             return e.Rarity == "secreta" ? "Secret Offering" : e.Name;
         }
@@ -3412,6 +3580,7 @@ Puerto=8765
             bool ok = mapShown != null && !(MapMenuOnly && DbdInFront() && !cursor && !(typeBox != null && typeBox.Visible));
             if (ok && !mapWin.Visible) { mapWin.Show(); SetWindowPos(mapWin.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040); }
             else if (!ok && mapWin.Visible) mapWin.Hide();
+            if (mapWin.Visible) mapWin.SetClickable(MapMarksOn && (cursor || (typeBox != null && typeBox.Visible)));
         }
 
         void UpdateVisibility(bool cursor)
@@ -3436,6 +3605,8 @@ Puerto=8765
             // en partida DBD esconde el cursor: ahi no se muestra nada (algunos juegos lo "esconden" dejandolo sin imagen)
             bool cursor = GetCursorInfo(ref ci) && (ci.flags & 1) != 0 && ci.hCursor != IntPtr.Zero;
             cursorShown = cursor;
+            // se cerro el menu (ESC) y volviste a jugar: la rueda se va
+            if (!cursor && wheelWin != null && !wheelWin.IsDisposed && wheelWin.Visible && !wheelWin.Gesture && DbdInFront()) wheelWin.Hide();
             UpdateVisibility(cursor);
             SetMoveHook(cursor && Visible);
             bool ro = Visible && cursor && roomRect.Contains(new Point(ci.x - Left, ci.y - Top));
@@ -3795,6 +3966,7 @@ Puerto=8765
             ParseCombo(cfg.Get("TeclaLimpiar", "Shift+G"), out vkClear, out clearSh, out clearCt, out clearAl, out n);
             ParseCombo(cfg.Get("TeclaAyuda", "Shift+H"), out vkHelp, out helpSh, out helpCt, out helpAl, out n);
             ParseCombo(cfg.Get("TeclaNombres", "Shift+M"), out vkNames, out namesSh, out namesCt, out namesAl, out n);
+            ParseCombo(cfg.Get("TeclaRueda", "Shift+R"), out vkWheel, out wheelSh, out wheelCt, out wheelAl, out n);
             SetTypeKey(cfg.Get("TeclaEscribir", "Shift+T"));
             st.ClearKeyName = cfg.Get("TeclaLimpiar", "Shift+G");
         }
@@ -3806,6 +3978,7 @@ Puerto=8765
             Tuple.Create(L("Borrar lista (mantener 1 s)", "Clear list (hold 1 s)"), "TeclaLimpiar", "Shift+G", true),
             Tuple.Create(L("Ayuda (mantener)", "Help (hold)"), "TeclaAyuda", "Shift+H", true),
             Tuple.Create(L("Mostrar nombres", "Show names"), "TeclaNombres", "Shift+M", true),
+            Tuple.Create(L("Rueda (con el menú ESC)", "Wheel (with the ESC menu)"), "TeclaRueda", "Shift+R", true),
         };
 
         void AskKey(Tuple<string, string, string, bool> act)
@@ -4892,6 +5065,25 @@ Puerto=8765
             if (HandleSync(op, mine)) return;
             object rt0;
             if (!mine && op.ContainsKey("reset") && op.TryGetValue("t", out rt0) && UnixNow() - Convert.ToInt64(rt0) < 120) { RecordMatch(); HideMap(false); }
+            object mk;
+            if (op.TryGetValue("mark", out mk))
+            {
+                object mn0;
+                if (!mine && op.TryGetValue("t", out rt0) && UnixNow() - Convert.ToInt64(rt0) < 600 && op.TryGetValue("mapn", out mn0)
+                    && mapShown != null && (mn0 ?? "").ToString() == mapShown && mapWin != null && MapGuides.ContainsKey(mapShown))
+                {
+                    string mwho = SenderName(op), v = (mk ?? "").ToString();
+                    var xy = v.Split(',');
+                    int x, y;
+                    if (xy.Length == 2 && int.TryParse(xy[0], out x) && int.TryParse(xy[1], out y))
+                    {
+                        mapWin.SetMark(mwho, new PointF(x, y));
+                        if (MapMarksOn) Feedback(mwho + L(" marcó: ", " marked: ") + DescribeSpot(MapGuides[mapShown], x, y), Color.FromArgb(255, 150, 150), 6000);
+                    }
+                    else mapWin.SetMark(mwho, null);
+                }
+                return;
+            }
             object mp;
             if (op.TryGetValue("map", out mp))
             {
@@ -4917,10 +5109,112 @@ Puerto=8765
         void PublishDiff(object before)
         {
             if (before != null) st.LastChange = UnixNow();
+            CountPerkUse(before as State.Snap);
             if (room == null || before == null) return;
             var op = st.Diff(before);
             if (op == null) return;
             room.Publish(Stamp(op));
+        }
+
+        // ---- perks mas anotados (frecuentes.txt: "cantidad<TAB>nombre"), para la primera rueda de Perk
+        Dictionary<string, int> perkUse;
+        Dictionary<string, int> PerkUse()
+        {
+            if (perkUse != null) return perkUse;
+            perkUse = new Dictionary<string, int>();
+            try
+            {
+                string p = Path.Combine(dir, "frecuentes.txt");
+                if (File.Exists(p))
+                    foreach (var line in File.ReadAllLines(p, Encoding.UTF8))
+                    {
+                        var f = line.Split('\t'); int n;
+                        if (f.Length == 2 && int.TryParse(f[0], out n)) perkUse[f[1]] = n;
+                    }
+            }
+            catch { }
+            return perkUse;
+        }
+        void CountPerkUse(State.Snap before)
+        {
+            if (before == null || before.Perks == null) return;
+            var added = st.Perks.Where(p => !before.Perks.Contains(p)).Select(p => p.Name).ToList();
+            if (st.Killer != null && st.Killer != before.Killer) added.Add("K:" + st.Killer.Name); // killers: misma lista, con "K:"
+            if (added.Count == 0) return;
+            var u = PerkUse();
+            foreach (var p in added) { int n; u.TryGetValue(p, out n); u[p] = n + 1; }
+            try { File.WriteAllLines(Path.Combine(dir, "frecuentes.txt"), u.OrderByDescending(kv => kv.Value).Select(kv => kv.Value + "\t" + kv.Key), Encoding.UTF8); } catch { }
+        }
+        // perks de killer mas usados por la comunidad, de mas a menos. Fijo (sin consultar internet): el top 5 es el oficial
+        // de Behaviour (stats del 18/10/2026); el resto, el meta conocido. Actualizarlo a mano con cada version.
+        static readonly string[] CommonPerks = {
+            "Pain Resonance", "Nowhere to Hide", "Pop Goes the Weasel", "Lethal Pursuer", "Barbecue", "Dead Man", "Bamboozle", "Deadlock",
+            "Corrupt Intervention", "Lightborn", "Hex: Ruin", "Grim Embrace", "No Way Out", "No One Escapes Death", "Eruption", "Sloppy Butcher",
+            "Discordance", "Surveillance", "Agitation", "Starstruck", "Hex: Plaything", "Hex: Pentimento", "Gift of Pain", "Floods of Rage",
+            "Hex: Undying", "Hex: Devour Hope", "Coup de Gr", "Infectious Fright", "Save the best for last", "Enduring", "Spirit Fury",
+            "Brutal Strength", "Fire Up", "Oppression", "Overcharge", "Call of Brine", "Thanatophobia", "Hex: The Third Seal", "Hex: Crowd Control",
+            "Leverage", "Hysteria", "Unrelenting", "Rapid Brutality", "Machine Learning", "Dark Devotion", "Ultimate Weapon", "Friends",
+            "Darkness Revealed", "Weave Attunement", "Batteries Included", "Merciless Storm", "Hex: Haunted Ground", "Hex: Two Can Play",
+            "Hex: Face the Darkness", "Hex: Thrill of the Hunt", "Hex: Wretched Fate", "Hex: Blood Favor", "Hex: Retribution", "Hex: Nothing But Misery",
+            "Blood Warden", "Terminus", "Rancor", "Remember Me", "Bitter Murmur", "Haywire", "Iron Grasp", "Forever Entwined", "Gearhead",
+            "Trail of Torment", "Dying Light", "Knock Out", "Distressing", "Coulrophobia", "Mad Grit", "Play With Your Food", "Furtive Chase" };
+        // killers mas jugados (fijo, de mas a menos; no hay estadisticas publicas completas). Lo tuyo pesa mas.
+        static readonly string[] CommonKillers = { "The Mastermind", "The Huntress", "The Blight", "The Nurse", "The Wraith", "The Spirit", "The Shape",
+            "The Ghost Face", "The Trapper", "The Pig", "The Hillbilly", "The Xenomorph", "The Good Guy", "The Dark Lord", "The Houndmaster", "The Ghoul",
+            "The Legion", "The Nightmare", "The Animatronic", "The Krasue", "The Slasher", "The First", "The Lich", "The Unknown", "The Doctor", "The Cannibal",
+            "The Clown", "The Plague", "The Nemesis", "The Oni", "The Executioner", "The Demogorgon", "The Cenobite", "The Artist", "The Deathslinger",
+            "The Trickster", "The Dredge", "The Onryō", "The Knight", "The Singularity", "The Twins", "The Hag", "The Skull Merchant", "The Judgment" };
+        public int KillerScore(Entry k)
+        {
+            int n, i = Array.IndexOf(CommonKillers, k.Name);
+            PerkUse().TryGetValue("K:" + k.Name, out n);
+            return n * 1000 + (i < 0 ? 0 : CommonKillers.Length - i);
+        }
+        internal static readonly Dictionary<string, string> PortraitFix = new Dictionary<string, string> {
+            { "The Hag", "K06_TheHag_Portrait.png" }, { "The Shape", "K05_TheShape_Portrait.png" }, { "The Ghost Face", "K16_TheGhostFace_Portrait.png" },
+            { "The Mastermind", "K29_TheMastermind_Portrait.png" }, { "The Good Guy", "K34_TheGoodGuy_Portrait.png" }, { "The Dark Lord", "K37_TheDarkLord_Portrait.png" } };
+        // foto de cada mapa (IconMap_<x>.png del wiki; los nombres no siguen ninguna regla, por eso a mano). Clave: Bare(nombre)
+        internal static readonly Dictionary<string, string> MapPhoto = new[] {
+            "Azarov's Resting Place=Jnk_Office", "Blood Lodge=Jnk_Lodge", "Gas Heaven=Jnk_GasStation", "Wreckers' Yard=Jnk_Scrapyard", "Wretched Shop=Jnk_Garage",
+            "Preschool I=Eng_Elmstreet", "Preschool II=Eng_ElmstreetII", "Preschool III=Eng_ElmstreetIII", "Preschool IIIV=Eng_ElmstreetIV", "Preschool V=Eng_ElmstreetV",
+            "Fractured Cowshed=Frm_Barn", "Rancid Abbatoir=Frm_Slaughterhouse", "Rotten Fields=Frm_Cornfield", "The Thompson House=Frm_Farmhouse", "Torment Creek=Frm_Silo",
+            "Disturbed Ward=Asy_Asylum", "Father Campbells Chapel=Asy_Chapel", "Shattered Square=Qtm_Quantumlevel01", "Forgotten Ruins=Qtm_Churroslevel01",
+            "Eyrie of Crows=Ion_Ionlevel01", "Dead Sands=Ice_Level01", "The Underground Complex=Qat_Laboratory",
+            "Coal Tower=Ind_CoalTower", "Coal Tower II=Ind_CoalTower", "Groaning Storehouse=Ind_Storehouse", "Groaning Storehouse II=Ind_Storehouse",
+            "Ironworks Of Misery=Ind_Foundry", "Ironworks Of Misery II=Ind_Foundry", "Shelter Woods=Ind_Forest", "Shelter Woods II=Ind_Forest",
+            "Suffocation Pit=Ind_Mine", "Suffocation Pit II=Ind_Mine", "Mother's Dwelling=Brl_MadHouse", "Temple of Purgation=Brl_Temple",
+            "Grim Pantry=Swp_GrimPantry", "The Pale Rose=Swp_ThePaleRose", "Family Residence=Hti_Manor", "Family Residence II=Hti_Manor",
+            "Sanctum of Wrath=Hti_Shrine", "Sanctum of Wrath II=Hti_Shrine", "Police Station East Wing=Ecl_Eclipselevel01", "Police Station West Wing=Ecl_Orionlevel01",
+            "Dead Dawg Saloon=Ukr_Saloon", "Garden of Joy=Meteor_Meteorlevel01", "Greenville Square=Meteor_Applepielevel01", "Fallen Refuge=Apl_Shack",
+            "Freddy Fazbears Pizza=Apl_Level02", "The Game=Fin_TheGame", "Lampkin Lane=Sub_Street", "Midwich Elementary School=Wal_Level01",
+            "Mount Ormond Resort=Kny_Cottage", "Mount Ormond Resort II=Kny_Cottage", "Mount Ormond Resort III=Kny_Cottage", "Ormond Lake Mine=Glo_Level01",
+            "Treatment Theatre=Hos_Treatment", "Toba Landing=Uba_Umbralevel01", "Nostromo Wreckage=Uba_Wormholelevel01", "Trickster's Delusion=QuiLevel01" }
+            .Select(x => x.Split('=')).ToDictionary(x => Bare(x[0]), x => x[1]);
+        internal static string Bare(string s)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in s.Normalize(NormalizationForm.FormD).ToLowerInvariant())
+                if (c >= 'a' && c <= 'z') sb.Append(c); // sin tildes ni signos: "Coup de Grâce" = "coupdegrace"
+            return sb.ToString();
+        }
+        Dictionary<Entry, int> commonRank;
+        // puntaje para ordenar: cada vez que vos lo anotaste vale mas que cualquier puesto en la lista de la comunidad
+        public int PerkScore(Entry p)
+        {
+            if (commonRank == null)
+            {
+                commonRank = new Dictionary<Entry, int>();
+                for (int i = 0; i < CommonPerks.Length; i++)
+                {
+                    string b = Bare(CommonPerks[i]);
+                    foreach (var e in cat.Perks.Where(x => Bare(x.Name).Contains(b)))
+                        if (!commonRank.ContainsKey(e)) commonRank[e] = CommonPerks.Length - i;
+                }
+            }
+            int n, r;
+            PerkUse().TryGetValue(p.Name, out n);
+            commonRank.TryGetValue(p, out r);
+            return n * 1000 + r;
         }
 
         void PublishReset()
@@ -5230,7 +5524,7 @@ Puerto=8765
             var e = cat.Maps.FirstOrDefault(m => m.Name == mapShown);
             mapWin.Set(mapShown, e != null ? e.ActionTag : "", files, MapSize);
             mapWin.Place(cfg.GetInt("MapaX", 20), cfg.GetInt("MapaY", 20));
-            mapWin.Opacity = MapOpacity / 100.0;
+            mapWin.Opacity = SafeOp(MapOpacity / 100.0);
             mapWin.Invalidate();
         }
 
@@ -5422,13 +5716,13 @@ Puerto=8765
             bool refreshing;
             int y;
             string cur;
-            static readonly string[] Pages = { "Lista", "Mapa", "Teclas", "Sala", "Voz", "General" };
+            static readonly string[] Pages = { "Lista", "Mapa", "Rueda", "Teclas", "Sala", "Voz", "General" };
             static string PageLabel(string p)
             {
                 if (!Lang.En) return p;
-                switch (p) { case "Lista": return "List"; case "Mapa": return "Map"; case "Teclas": return "Keys"; case "Sala": return "Room"; case "Voz": return "Voice"; default: return p; }
+                switch (p) { case "Lista": return "List"; case "Mapa": return "Map"; case "Teclas": return "Keys"; case "Sala": return "Room"; case "Voz": return "Voice"; case "Rueda": return "Wheel"; default: return p; }
             }
-            const int X = 24, W = 420;
+            const int X = 24; int W = 420; // W: ancho del contenido (crece con la ventana)
             static Color Bg { get { return Dbd.Bg; } }
             static Color Fg { get { return Dbd.Fg; } }
             static Color Dim { get { return Dbd.Dim; } }
@@ -5440,9 +5734,28 @@ Puerto=8765
             {
                 ov = o;
                 Text = AppName + L(" · Configuración", " · Settings");
-                FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
+                FormBorderStyle = FormBorderStyle.Sizable; MaximizeBox = true;
                 StartPosition = FormStartPosition.CenterScreen;
                 ClientSize = new Size(640, 580);
+                MinimumSize = Size; // mas chica no: el contenido no entra
+                // el tamano que le dejaste la ultima vez
+                var sz = Regex.Match(ov.cfg.Get("VentanaConfig", ""), @"^(\d+)x(\d+)$");
+                if (sz.Success)
+                {
+                    var wa = Screen.PrimaryScreen.WorkingArea;
+                    Size = new Size(Math.Min(wa.Width, Math.Max(Width, int.Parse(sz.Groups[1].Value))), Math.Min(wa.Height, Math.Max(Height, int.Parse(sz.Groups[2].Value))));
+                }
+                // al terminar de agrandar/achicar: se reacomoda y se guarda el tamano
+                int lastW = -1; bool sizing = false;
+                ResizeBegin += (s, e) => sizing = true;
+                ResizeEnd += (s, e) =>
+                {
+                    sizing = false;
+                    if (WindowState == FormWindowState.Normal) ov.SetCfg("VentanaConfig", Width + "x" + Height);
+                    if (body.ClientSize.Width != lastW && cur != null) { lastW = body.ClientSize.Width; ShowPage(cur); }
+                };
+                // maximizar / restaurar (sin arrastrar el borde)
+                SizeChanged += (s, e) => { if (!sizing && WindowState != FormWindowState.Minimized && cur != null && body.ClientSize.Width != lastW) { lastW = body.ClientSize.Width; ShowPage(cur); } };
                 BackColor = Bg; ForeColor = Fg; Font = new Font("Segoe UI", 9.5f);
                 if (ov.trayRed != null) Icon = ov.trayRed;
                 body = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Bg };
@@ -5488,6 +5801,7 @@ Puerto=8765
             {
                 if (Array.IndexOf(Pages, page) < 0) page = "Lista";
                 cur = page;
+                W = Math.Max(420, Math.Min(900, body.ClientSize.Width - X * 2 - SystemInformation.VerticalScrollBarWidth - 4));
                 foreach (var l in navItems) { l.Selected = (string)l.Tag == page; l.Invalidate(); }
                 body.SuspendLayout();
                 body.AutoScrollPosition = Point.Empty;
@@ -5501,6 +5815,7 @@ Puerto=8765
                     case "Lista": PageList(); break;
                     case "Mapa": PageMap(); break;
                     case "Teclas": PageKeys(); break;
+                    case "Rueda": PageWheel(); break;
                     case "Sala": PageRoom(); break;
                     case "Voz": PageVoice(); break;
                     default: PageGeneral(); break;
@@ -5628,7 +5943,7 @@ Puerto=8765
                 Slider(L("Tamaño de los íconos", "Icon size"), 24, 120, () => C.GetInt("TamanoPerk", 72), v => { ov.Live("TamanoPerk", v.ToString()); ov.Relayout(); }, v => v + " px");
                 Slider(L("Tamaño de la letra", "Text size"), 8, 28, () => C.GetInt("TamanoLetra", 14), v => { ov.Live("TamanoLetra", v.ToString()); Look(); }, v => v.ToString());
                 Slider(L("Opacidad", "Opacity"), 30, 100, () => (int)Math.Round(C.GetD("Opacidad", 0.85) * 100),
-                    v => { ov.Live("Opacidad", (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture)); ov.Opacity = v / 100.0; }, v => v + " %");
+                    v => { ov.Live("Opacidad", (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture)); ov.Opacity = SafeOp(v / 100.0); }, v => v + " %");
                 Check(L("Mostrar los nombres de perks y addons", "Show perk and add-on names"), () => ov.showNames, v => ov.SetNames(v));
                 Check(L("Mostrar el nombre del killer", "Show the killer's name"), () => ov.KillerOn, v => { ov.SetCfg("MostrarKiller", v ? "si" : "no"); ov.Relayout(); });
                 Slider(L("Tamaño del nombre del killer", "Killer name size"), 6, 22, () => C.GetInt("TamanoKiller", 12), v => { ov.Live("TamanoKiller", v.ToString()); ov.killerFont = null; ov.Relayout(); }, v => v.ToString());
@@ -5649,26 +5964,64 @@ Puerto=8765
                 refreshers.Add(() => show.Text = (ov.mapShown != null ? L("Ocultar el mapa", "Hide the map") : L("Ver un mapa de ejemplo", "Show a sample map")).ToUpperInvariant());
                 Note(Lang.En ? "Pick a map by typing its name in the " + ov.TypeKeyText + " box (for example \"map coal\"). In a room, everyone sees it." : "El mapa se elige escribiendo su nombre en el cuadro de " + ov.TypeKeyText + " (por ejemplo \"mapa coal\"). Cuando estás en sala, lo ven todos.");
                 Slider(L("Tamaño", "Size"), 160, 700, () => ov.MapSize, v => { ov.Live("TamanoMapa", v.ToString()); ov.RefreshMap(); }, v => v + " px");
-                Slider(L("Opacidad", "Opacity"), 15, 100, () => ov.MapOpacity, v => { ov.Live("OpacidadMapa", v.ToString()); if (ov.mapWin != null) ov.mapWin.Opacity = v / 100.0; }, v => v + " %");
+                Slider(L("Opacidad", "Opacity"), 15, 100, () => ov.MapOpacity, v => { ov.Live("OpacidadMapa", v.ToString()); if (ov.mapWin != null) ov.mapWin.Opacity = SafeOp(v / 100.0); }, v => v + " %");
                 Slider(L("Posición desde la izquierda", "Position from the left"), 0, Math.Max(100, scr.Width - 160), () => C.GetInt("MapaX", 20), v => { ov.Live("MapaX", v.ToString()); ov.RefreshMap(); }, v => v + " px");
                 Slider(L("Posición desde arriba", "Position from the top"), 0, Math.Max(100, scr.Height - 160), () => C.GetInt("MapaY", 20), v => { ov.Live("MapaY", v.ToString()); ov.RefreshMap(); }, v => v + " px");
                 Check(L("Mostrar solo con el menú de DBD abierto (ESC)", "Show only while the DBD menu is open (ESC)"), () => ov.MapMenuOnly, v => { ov.SetCfg("MapaVisibilidad", v ? "menu" : "siempre"); ov.UpdateMapVisibility(ov.cursorShown); });
                 Note(L("Planos con callouts de Lethia (hens333.com/callouts), versión de Zexov sobre el original de Broosley y Evo.", "Callout maps by Lethia (hens333.com/callouts), Zexov's version of the original by Broosley and Evo."));
             }
 
+            void KeyRow(Tuple<string, string, string, bool> a)
+            {
+                body.Controls.Add(new Label { Text = a.Item1, AutoSize = true, Location = new Point(X, y + 6), ForeColor = Fg });
+                var v = new Label { AutoSize = false, Bounds = new Rectangle(X + 215, y + 4, 115, 22), ForeColor = Dbd.AccHi, Font = Dbd.Head(11f), UseMnemonic = false };
+                refreshers.Add(() => { string k = C.Get(a.Item2, a.Item3); v.Text = k.Length > 0 ? k : L("sin tecla", "no key"); });
+                body.Controls.Add(v);
+                Btn(L("Cambiar…", "Change…"), X + 330, () => ov.AskKey(a));
+                y += 40;
+            }
+
+            void PageWheel()
+            {
+                Title(L("Rueda", "Wheel"));
+                Note(L("Otra forma de anotar, con el mouse: con el menú de DBD abierto (ESC), apretá la tecla y elegí. Clic derecho o el centro: atrás. ESC: cerrar.",
+                       "Another way to add things, with the mouse: with the DBD menu open (ESC), press the key and pick. Right-click or the center: back. ESC: close."));
+                KeyRow(KeyActions.First(k => k.Item2 == "TeclaRueda"));
+                var wmodes = new[] { "clic", "gesto", "gestoclic" };
+                Choice(L("Cómo se usa", "How it works"), new[] { L("Con el cursor (menú ESC)", "With the cursor (ESC menu)"), L("Mantener y empujar", "Hold and push"), L("Mantener y hacer clic", "Hold and click") },
+                    () => Math.Max(0, Array.IndexOf(wmodes, C.Get("RuedaModo", "clic"))), i => ov.SetCfg("RuedaModo", wmodes[i]));
+                Note(L("Mantener y empujar: con la tecla apretada, empujá el mouse hacia una categoría hasta el borde para entrar; en la última, soltá para elegir. Clic derecho: atrás.\nMantener y hacer clic: apuntá y hacé clic; soltar la tecla cierra.\nAndan también jugando, pero la cámara se mueve y el juego recibe los clics (la app no los bloquea).",
+                       "Hold and push: with the key held, push the mouse toward a category to the edge to enter; on the last wheel, release to pick. Right-click: back.\nHold and click: aim and click; releasing the key closes.\nBoth work while playing, but the camera moves and the game gets the clicks (the app doesn't block them)."));
+                Check(L("Mostrar el puntero al apuntar (modos con la tecla)", "Show the pointer while aiming (key modes)"),
+                      () => C.Get("RuedaPuntero", "no") == "si", v => ov.SetCfg("RuedaPuntero", v ? "si" : "no"));
+                Buttons(B(L("Probar la rueda", "Try the wheel"), () => ov.ToggleWheel()));
+                var pmodes = new[] { "categorias", "letras" };
+                Choice(L("Perks", "Perks"), new[] { L("Por lo que hacen (más usados primero)", "By what they do (most used first)"), L("Por letra", "By letter") },
+                    () => Math.Max(0, Array.IndexOf(pmodes, C.Get("RuedaPerks", "categorias"))), i => ov.SetCfg("RuedaPerks", pmodes[i]));
+                Note(L("Por letra sigue el idioma de los nombres (Configuración → General).", "By letter follows the names language (Settings → General)."));
+                var mmodes = new[] { "reino", "letras" };
+                Choice(L("Mapas", "Maps"), new[] { L("Por reino", "By realm"), L("Por letra", "By letter") },
+                    () => Math.Max(0, Array.IndexOf(mmodes, C.Get("RuedaMapas", "reino"))), i => ov.SetCfg("RuedaMapas", mmodes[i]));
+                var kmodes = new[] { "poder", "licencia", "jugados", "letras" };
+                Choice(L("Killers", "Killers"), new[] { L("Por tipo de poder", "By power type"), L("Originales y licenciados", "Originals and licensed"),
+                                                        L("Más jugados primero", "Most played first"), L("Por letra", "By letter") },
+                    () => Math.Max(0, Array.IndexOf(kmodes, C.Get("RuedaKillers", "poder"))), i => ov.SetCfg("RuedaKillers", kmodes[i]));
+                Check(L("Color por tier en los perks (S, A, B, C, D)", "Perk tier colors (S, A, B, C, D)"),
+                      () => C.Get("RuedaTiers", "si") != "no", v => ov.SetCfg("RuedaTiers", v ? "si" : "no"));
+                Title(L("Descripciones", "Descriptions"));
+                Check(L("Mostrar qué hace cada ofrenda y addon al pasar el mouse", "Show what each offering and add-on does on hover"),
+                      () => C.Get("RuedaDescripcion", "si") != "no", v => ov.SetCfg("RuedaDescripcion", v ? "si" : "no"));
+                var stModes = new[] { "ambos", "icono", "texto" };
+                Choice(L("Estados", "Status effects"),
+                    new[] { L("Ícono y nombre", "Icon and name"), L("Solo ícono", "Icon only"), L("Solo nombre", "Name only") },
+                    () => Math.Max(0, Array.IndexOf(stModes, C.Get("EstadosRueda", "ambos"))), i => ov.SetCfg("EstadosRueda", stModes[i]));
+                Note(L("Agotamiento, Ceguera, Vulnerabilidad…: con el ícono del juego, el nombre o los dos.", "Exhausted, Blindness, Exposed…: with the game icon, the name or both."));
+            }
+
             void PageKeys()
             {
                 Title(L("Teclas", "Keys"));
-                foreach (var act in KeyActions)
-                {
-                    var a = act;
-                    body.Controls.Add(new Label { Text = a.Item1, AutoSize = true, Location = new Point(X, y + 6), ForeColor = Fg });
-                    var v = new Label { AutoSize = false, Bounds = new Rectangle(X + 215, y + 4, 115, 22), ForeColor = Dbd.AccHi, Font = Dbd.Head(11f), UseMnemonic = false };
-                    refreshers.Add(() => { string k = C.Get(a.Item2, a.Item3); v.Text = k.Length > 0 ? k : L("sin tecla", "no key"); });
-                    body.Controls.Add(v);
-                    Btn(L("Cambiar…", "Change…"), X + 330, () => ov.AskKey(a));
-                    y += 40;
-                }
+                foreach (var act in KeyActions) KeyRow(act);
                 y += 4;
                 Check(L("Las teclas solo funcionan con DBD al frente", "Keys only work while DBD is in front"), () => ov.KeysOnlyInDbd, v => ov.SetCfg("TeclasSoloEnDBD", v ? "si" : "no"));
                 Note(L("Así, escribiendo en Discord o en el navegador, las teclas de la app no hacen nada. Al cambiar una tecla podés usar combinaciones (Shift, Ctrl, Alt) o un botón del mouse.", "So typing in Discord or the browser doesn't trigger the app's keys. When changing a key you can use combinations (Shift, Ctrl, Alt) or a mouse button."));
@@ -6094,6 +6447,1148 @@ Puerto=8765
             GifSave("guia-" + lang + "-3");
         }
 
+        // ---- rueda (prueba): alternativa a Shift+T con el mouse, como la rueda de comunicacion del juego.
+        // Se usa con el cursor a la vista (menu ESC, lobby): categoria -> letra -> perk/addon/ofrenda/killer/mapa.
+        // Es una ventana que recibe los clics SIN activarse (el juego no pierde el foco) y no intercepta nada.
+        WheelWindow wheelWin;
+        int vkWheel; bool wheelSh, wheelCt, wheelAl, wheelDown;
+        volatile bool wheelOpen; // lo lee el gancho de teclas (otro hilo): con la rueda abierta, ESC la cierra
+
+        public void ToggleWheel()
+        {
+            if (wheelWin != null && !wheelWin.IsDisposed && wheelWin.Visible) { wheelWin.Hide(); return; }
+            if (DbdInFront() && !cursorShown)
+            {
+                Feedback(L("abrí el menú (ESC) para usar la rueda", "open the menu (ESC) to use the wheel"), Color.FromArgb(240, 170, 80), 3000);
+                return;
+            }
+            if (wheelWin == null || wheelWin.IsDisposed) wheelWin = new WheelWindow(this);
+            wheelWin.Open();
+        }
+
+        void WheelPick(Entry e)
+        {
+            if (e.Action != null) { DoAction(e.Action); return; }
+            EndSample();
+            var before = st.Snapshot();
+            string what = st.AddPicked(e, false);
+            if (st.PendingKiller != null) what = st.Apply("si"); // en la rueda elegir otro killer ya es la confirmacion
+            bool ok = !Lang.Fail(what);
+            if (ok) { st.Save(Path.Combine(dir, "estado.txt")); PublishDiff(before); }
+            Log("[rueda] " + e.Name, what);
+            Feedback("◈ " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), 5000);
+            Relayout();
+        }
+
+        class WheelWindow : Form
+        {
+            class Seg { public string Label, Big, Small, Icon, Glyph; public Entry E; public Action Go; public bool Marked; public int Group = -1; }
+            class Level { public string Title; public List<Seg> Segs = new List<Seg>(); }
+
+            readonly Overlay ov;
+            readonly List<Level> stack = new List<Level>();
+            int hover = -1; // -1 nada, -2 el centro
+            const int D = 580, R = 278, Rin = 96, InfoH = 116; // InfoH: debajo de la rueda, que hace lo que tenes bajo el mouse
+            static readonly Color Key = Color.FromArgb(1, 0, 1);
+
+            public WheelWindow(Overlay o)
+            {
+                ov = o;
+                FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
+                BackColor = Key; TransparencyKey = Key; Opacity = 0.95; DoubleBuffered = true;
+                ClientSize = new Size(D, D + InfoH);
+            }
+            protected override bool ShowWithoutActivation { get { return true; } }
+            protected override void OnVisibleChanged(EventArgs e)
+            {
+                base.OnVisibleChanged(e);
+                ov.wheelOpen = Visible;
+                if (!Visible) { steering = false; RawMouse(false); }
+            }
+
+            // ---- modo "como el juego": mantener la tecla y mover el mouse apunta; soltar elige. El movimiento se LEE con
+            // Raw Input (RIDEV_INPUTSINK): no se bloquea ni se toca nada, el juego lo sigue recibiendo igual.
+            public bool Gesture, ClickMode;
+            bool steering, rawOn;
+            float vx, vy;
+            const float SteerMin = 40f;
+            float SteerMax { get { return ClickMode ? 140f : 300f; } } // con clic, corto (cambiar de direccion es rapido); empujando, largo (para no entrar sin querer)
+            [StructLayout(LayoutKind.Sequential)] struct RAWINPUTDEVICE { public ushort UsagePage, Usage; public uint Flags; public IntPtr Target; }
+            [StructLayout(LayoutKind.Sequential)] struct RAWINPUTHEADER { public uint Type, Size; public IntPtr Device, WParam; }
+            [DllImport("user32.dll")] static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] d, uint n, uint size);
+            [DllImport("user32.dll")] static extern uint GetRawInputData(IntPtr h, uint cmd, IntPtr data, ref uint size, uint headerSize);
+            [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+            [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
+            void RawMouse(bool on)
+            {
+                if (on == rawOn) return;
+                var d = new[] { new RAWINPUTDEVICE { UsagePage = 1, Usage = 2, Flags = on ? 0x100u : 0x1u, Target = on ? Handle : IntPtr.Zero } };
+                if (RegisterRawInputDevices(d, 1, (uint)Marshal.SizeOf(typeof(RAWINPUTDEVICE)))) rawOn = on;
+            }
+            public void Steer(bool down)
+            {
+                if (down) { steering = true; vx = vy = 0; if (hover != -1) { hover = -1; Invalidate(); } return; }
+                if (!steering) return;
+                steering = false;
+                int h = hover;
+                vx = vy = 0; hover = -1;
+                if (ClickMode) { Hide(); return; }                    // con clic: soltar la tecla cierra sin elegir
+                if (h >= 0 && h < Cur.Segs.Count) Cur.Segs[h].Go(); // soltar elige (si es una categoria, entra y espera la tecla)
+                else Hide();                                          // soltar sin apuntar: se cierra
+                if (Visible) Invalidate();
+            }
+            void OnRawInput(IntPtr h)
+            {
+                if (!steering) return;
+                uint hs = (uint)Marshal.SizeOf(typeof(RAWINPUTHEADER)), size = 0;
+                GetRawInputData(h, 0x10000003, IntPtr.Zero, ref size, hs);
+                if (size == 0 || size > 256) return;
+                IntPtr buf = Marshal.AllocHGlobal((int)size);
+                try
+                {
+                    if (GetRawInputData(h, 0x10000003, buf, ref size, hs) != size) return;
+                    if (Marshal.ReadInt32(buf) != 0) return;                       // RIM_TYPEMOUSE
+                    // botones (solo se leen; el juego los recibe igual): derecho = atras; izquierdo = elegir (modo clic)
+                    int bf = Marshal.ReadInt16(buf, (int)hs + 4) & 0xFFFF;
+                    if ((bf & 0x4) != 0) { vx = vy = 0; hover = -1; Back(); if (Visible) Invalidate(); return; }
+                    if ((bf & 0x1) != 0 && ClickMode)
+                    {
+                        int h0 = hover;
+                        vx = vy = 0; hover = -1;
+                        if (h0 >= 0 && h0 < Cur.Segs.Count) Cur.Segs[h0].Go();
+                        if (Visible) Invalidate();
+                        return;
+                    }
+                    if ((Marshal.ReadInt16(buf, (int)hs) & 1) != 0) return;        // movimiento absoluto (tableta): no
+                    Move(Marshal.ReadInt32(buf, (int)hs + 12), Marshal.ReadInt32(buf, (int)hs + 16));
+                }
+                finally { Marshal.FreeHGlobal(buf); }
+            }
+            void Move(int dx, int dy)
+            {
+                {
+                    vx += dx; vy += dy;
+                    float len = (float)Math.Sqrt(vx * vx + vy * vy);
+                    if (len > SteerMax) { vx = vx * SteerMax / len; vy = vy * SteerMax / len; len = SteerMax; }
+                    int nh = -1;
+                    if (len >= SteerMin)
+                    {
+                        int n = Math.Max(1, Cur.Segs.Count);
+                        float per = 360f / n;
+                        double ang = Math.Atan2(vy, vx) * 180 / Math.PI + 90 + per / 2;
+                        ang = ((ang % 360) + 360) % 360;
+                        nh = Math.Min(n - 1, (int)(ang / per));
+                    }
+                    if (nh != hover) { hover = nh; Invalidate(); }
+                    else if (ov.cfg.Get("RuedaPuntero", "no") == "si") { pointerOnly = true; Invalidate(); }
+                    // empujar hasta el borde sobre una categoria: entra sin soltar (asi se llega al final con una sola apretada)
+                    if (!ClickMode && nh >= 0 && len >= SteerMax * 0.98f && IsSub(Cur.Segs[nh]))
+                    {
+                        vx = vy = 0; hover = -1;
+                        Cur.Segs[nh].Go();
+                        Invalidate();
+                    }
+                }
+            }
+            protected override CreateParams CreateParams
+            {
+                get { var cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x80 | 0x8; return cp; } // sin activarse, sin barra de tareas, arriba
+            }
+            protected override void WndProc(ref Message m)
+            {
+                if (m.Msg == 0x21) { m.Result = (IntPtr)3; return; } // WM_MOUSEACTIVATE -> MA_NOACTIVATE: el clic llega, el foco queda en el juego
+                if (m.Msg == 0xFF) OnRawInput(m.LParam);                // WM_INPUT (modo gesto)
+                base.WndProc(ref m);
+            }
+
+            public void Open(bool gesture = false)
+            {
+                Gesture = gesture;
+                steering = false; vx = vy = 0;
+                // en modo gesto la ventana no recibe clics (pasan al juego): todo se maneja con la tecla y el movimiento
+                int ex = GetWindowLong(Handle, -20);
+                SetWindowLong(Handle, -20, gesture ? ex | 0x20 : ex & ~0x20);
+                RawMouse(gesture);
+                stack.Clear();
+                stack.Add(Root());
+                hover = -1;
+                var scr = Screen.PrimaryScreen.Bounds;
+                Location = new Point(scr.Left + (scr.Width - D) / 2, scr.Top + (scr.Height - D) / 2);
+                Show();
+                SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040);
+                Invalidate();
+            }
+
+            // nombre para ordenar y para la letra: sin "Hex:", "The", etc.
+            string SortName(Entry e)
+            {
+                string n = ov.DName(e);
+                n = Regex.Replace(n, @"^(?:(?:Hex|Scourge Hook|Boon|Invocation|Maleficio|Gancho de castigo|Bendición|Invocación)\s*:\s*|(?:The|El|La|Los|Las)\s+)", "", RegexOptions.IgnoreCase);
+                return n.Trim();
+            }
+            static int RarRank(string r)
+            {
+                switch (r) { case "iridescent": case "visceral": return 0; case "veryrare": return 1; case "rare": return 2; case "uncommon": return 3; case "common": return 4; default: return 5; }
+            }
+            // color de rareza (addons y ofrendas), como el fondo de los iconos en el juego
+            // tiers de perks (S mejor ... D peor): opinion del meta, fija, se actualiza a mano. Lo que no esta en la lista es C.
+            static readonly string[][] PerkTierList = {
+                new[] { "S", "Pain Resonance", "Grim Embrace", "Deadlock", "Dead Mans Switch", "Pop Goes the Weasel", "Eruption", "Corrupt Intervention",
+                        "Lethal Pursuer", "Barbecue & Chili", "Nowhere to Hide" },
+                new[] { "A", "No One Escapes Death", "Pentimento", "Plaything", "Undying", "Discordance", "Starstruck", "Bamboozle", "No Way Out",
+                        "Sloppy Butcher", "Gift of Pain", "Floods of Rage", "Coup de Grace", "Infectious Fright", "Leverage", "Oppression",
+                        "Machine Learning", "Friends Til the End" },
+                new[] { "B", "Brutal Strength", "Enduring", "Spirit Fury", "Unrelenting", "Save the best for last", "Agitation", "Surveillance",
+                        "Lightborn", "Thanatophobia", "Hysteria", "Merciless Storm", "Overcharge", "Call of Brine", "Devour Hope", "The Third Seal",
+                        "Blood Favor", "Nothing But Misery", "Ruin", "Darkness Revealed", "Dark Devotion", "Ultimate Weapon", "Weave Attunement",
+                        "Make your Choice", "Alien Instinct", "Gearhead", "Coulrophobia", "Knock Out", "Help Wanted", "Terminus", "Blood Warden",
+                        "Undone", "Forced Hesitation" },
+                new[] { "D", "Bloodhound", "Hoarder", "Beast of Prey", "Insidious", "Iron Grasp", "Franklins Demise", "Shattered Hope",
+                        "Huntress Lullaby", "Spies from the Shadows", "Territorial Imperative", "Haywire", "Celestial Witness", "Silent Shadow",
+                        "Rampage", "All Shaking Thunder" } };
+            // perks que practicamente no se ven en partidas (opinion del meta, fija). Solo se separan en categorias de mas de 12.
+            static readonly string[] RarePerks = {
+                "Huntress Lullaby", "Overture of Doom", "Hive Mind", "Under Your Thumb", "Scared to Death",
+                "Dragons Grip", "Game Afoot", "Unforeseen", "Turn Back The Clock", "Lay Waste", "Tinkerer", "Mindbreaker",
+                "Shattered Hope", "Celestial Witness", "Territorial Imperative", "Human Greed", "Dominance", "Phantom Fear", "Zanshin Tactics",
+                "Awakened Awareness", "Deerstalker", "Im All Ears", "Overwhelming Presence", "Predator", "Nemesis",
+                "Superior Anatomy", "Dark Arrogance", "All Shaking Thunder", "Rampage", "Monitor & Abuse", "Shadowborn", "Whispers", "Unbound",
+                "Beast of Prey", "Insidious", "Languid Touch", "Hubris", "Blood Echo", "Forced Penance", "Genetic Limits" };
+            static HashSet<string> rarePerks;
+            static bool IsRarePerk(Entry e)
+            {
+                if (rarePerks == null) rarePerks = new HashSet<string>(RarePerks.Select(Bare));
+                return rarePerks.Contains(Bare(Regex.Replace(e.Name, @"^(Hex|Scourge Hook|Boon|Invocation):\s*", "")));
+            }
+            static Dictionary<string, string> perkTiers;
+            public static string PerkTier(Entry e)
+            {
+                if (e == null || e.K != Kind.Perk) return null;
+                if (perkTiers == null)
+                {
+                    perkTiers = new Dictionary<string, string>();
+                    foreach (var t in PerkTierList) for (int i = 1; i < t.Length; i++) perkTiers[Bare(t[i])] = t[0];
+                }
+                string v;
+                return perkTiers.TryGetValue(Bare(Regex.Replace(e.Name, @"^(Hex|Scourge Hook|Boon|Invocation):\s*", "")), out v) ? v : "C";
+            }
+            public static bool ShowTiers = true; // Configuracion > Rueda
+            static Color TierColor(string t)
+            {
+                switch (t)
+                {
+                    case "S": return Color.FromArgb(230, 70, 70);
+                    case "A": return Color.FromArgb(240, 150, 60);
+                    case "B": return Color.FromArgb(232, 204, 80);
+                    case "C": return Color.FromArgb(120, 200, 110);
+                    default: return Color.FromArgb(110, 160, 230);
+                }
+            }
+            static Color? RarColor(Entry e)
+            {
+                if (e != null && e.K == Kind.Perk) return ShowTiers ? TierColor(PerkTier(e)) : (Color?)null;
+                if (e == null || (e.K != Kind.Addon && e.K != Kind.Offering)) return null;
+                switch (e.Rarity)
+                {
+                    case "common": case "uncommon": case "rare": case "veryrare": case "visceral": return RarityColor(e.Rarity);
+                    case "iridescent": return RarityColor("visceral");
+                    default: return null;
+                }
+            }
+            // lo que hace cada ofrenda, en una linea y desde el lado del sobreviviente (la descripcion del juego es larga)
+            static readonly Dictionary<string, string[]> Brief = new Dictionary<string, string[]>
+            {
+                { "Map offering", new[] { "El killer eligió este mapa.", "The killer picked this map." } },
+                { "Fog offering", new[] { "Más niebla.", "More fog." } },
+                { "Hook offering", new[] { "Ganchos más cerca entre sí.", "Hooks closer together." } },
+                { "Chest offering", new[] { "Menos cofres.", "Fewer chests." } },
+                { "Cypress Memento Mori", new[] { "Puede hacer mori al último sobreviviente.", "Can mori the last survivor." } },
+                { "Ivory Memento Mori", new[] { "Puede hacer mori a 1 sobreviviente que esté en su 2.º gancho.", "Can mori 1 survivor on their 2nd hook stage." } },
+                { "Ebony Memento Mori", new[] { "Puede hacer mori a todos los que estén en su 2.º gancho.", "Can mori anyone on their 2nd hook stage." } },
+                { "Moldy Oak", new[] { "Ganchos un poco más cerca entre sí.", "Hooks slightly closer together." } },
+                { "Rotten Oak", new[] { "Ganchos más cerca entre sí.", "Hooks closer together." } },
+                { "Putrid Oak", new[] { "Ganchos mucho más cerca entre sí.", "Hooks much closer together." } },
+                { "Scratched Coin", new[] { "1 cofre menos.", "1 fewer chest." } },
+                { "Cut Coin", new[] { "2 cofres menos.", "2 fewer chests." } },
+                { "Clear Reagent", new[] { "Un poco menos de niebla.", "Slightly less fog." } },
+                { "Faint Reagent", new[] { "Un poco más de niebla.", "Slightly more fog." } },
+                { "Hazy Reagent", new[] { "Más niebla.", "More fog." } },
+                { "Murky Reagent", new[] { "Mucha más niebla.", "Much more fog." } },
+                { "Bloodied Blueprint", new[] { "Sótano en la cabaña del killer.", "Basement in the Killer Shack." } },
+                { "Torn Blueprint", new[] { "Sótano en el edificio principal.", "Basement in the main building." } },
+                { "Annotated Blueprint", new[] { "Trampilla en la cabaña del killer.", "Hatch in the Killer Shack." } },
+                { "Vigo’s Blueprint", new[] { "Trampilla en el edificio principal.", "Hatch in the main building." } },
+                { "Vigo's Blueprint", new[] { "Trampilla en el edificio principal.", "Hatch in the main building." } },
+                { "Black Ward", new[] { "El killer no gasta sus addons.", "The killer keeps their add-ons." } },
+                { "Shroud of Vanishing", new[] { "Anula los shrouds: cada sobreviviente aparece donde le toque.", "Cancels survivor shrouds: everyone spawns normally." } },
+            };
+            // perks: una linea, lo que te hace a vos (escrito a mano; la descripcion del juego es demasiado larga). Clave: el nombre sin signos (Bare)
+            static readonly string[][] PerkBriefList = {
+                new[] { "Agitation", "Mientras te carga: +18 % Celeridad y radio de terror 12 m más grande.", "While carrying: +18% Haste and 12 m bigger Terror Radius." },
+                new[] { "Bamboozle", "Bloquea la ventana que salta (16 s) y salta ventanas 15 % más rápido.", "Blocks the window it vaults (16 s) and vaults 15% faster." },
+                new[] { "Barbecue & Chili", "Al colgar a alguien, ve las auras de los que estén a más de 40 m (5 s).", "On hook, sees the Auras of everyone farther than 40 m (5 s)." },
+                new[] { "Beast of Prey", "Al conseguir sed de sangre: Indetectable (40 s). No escuchás el radio.", "When it gets Bloodlust: Undetectable (40 s). No Terror Radius." },
+                new[] { "Bitter Murmur", "Gen terminado: ve a los que estén a 20 m (10 s). Con el último, a todos (20 s).", "Gen done: sees those within 20 m (10 s). Last gen: everyone (20 s)." },
+                new[] { "Blood Echo", "Al colgar: todos los heridos con Agotamiento y Hemorragia (30 s).", "On hook: all injured get Exhausted and Hemorrhage (30 s)." },
+                new[] { "Bloodhound", "Los charcos de sangre son más brillantes y duran 4 s más: rastrea heridos.", "Blood pools are brighter and last 4 s longer: tracks the injured." },
+                new[] { "Blood Warden", "Con una puerta abierta, al colgar: las salidas se bloquean (60 s). Una vez.", "Once a gate is open, on hook: exits blocked (60 s). Once." },
+                new[] { "Shattered Hope", "Destruye los tótems benefactores. Bendecir o limpiar bloquea tótems (20 s).", "Destroys Boon Totems. Blessing or cleansing blocks totems (20 s)." },
+                new[] { "Brutal Strength", "Rompe palés y paredes, y patea gens 20 % más rápido.", "Breaks pallets and walls, and kicks gens 20% faster." },
+                new[] { "Corrupt Intervention", "Al empezar: los 3 gens más lejos de él, bloqueados 120 s o hasta un derribo.", "At start: the 3 gens farthest from it are blocked 120 s or until a down." },
+                new[] { "Coulrophobia", "En su radio de terror curás 30 % más lento y las pruebas giran más rápido.", "In its Terror Radius you heal 30% slower and skill checks spin faster." },
+                new[] { "Cruel Limits", "Gen terminado: todas las ventanas bloqueadas (30 s) y las ve.", "Gen done: all windows blocked (30 s) and it sees them." },
+                new[] { "Dark Devotion", "Si golpea a la obsesión: ella lleva el radio de terror y él queda Indetectable (45 s).", "Obsession hit: they carry the Terror Radius, killer is Undetectable (45 s)." },
+                new[] { "Dead Mans Switch", "Tras colgar: el próximo que suelte un gen más de 2 s lo deja bloqueado (40 s).", "After a hook: the next one to leave a gen for 2 s gets it blocked (40 s)." },
+                new[] { "Deathbound", "Al curar a otro gritás; después, lejos de él: Inconsciencia y ves su aura.", "Healing another makes you scream; then, away from them: Oblivious." },
+                new[] { "Deerstalker", "Cada 30 s, el que menos persiguió ve su aura y el killer ve la de él (4 s).", "Every 30 s, the least-chased sees its Aura and it sees theirs (4 s)." },
+                new[] { "Discordance", "Si 2 o más reparan el mismo gen, le avisa y ve el gen.", "When 2 or more repair the same gen, it's alerted and sees the gen." },
+                new[] { "Distressing", "Radio de terror 30 % más grande; dentro reparás 8 % más lento.", "Terror Radius 30% bigger; inside it you repair 8% slower." },
+                new[] { "Dragons Grip", "Tras patear un gen, el primero que lo repare grita y queda con Vulnerabilidad (60 s).", "After a kick, the first to repair that gen screams and gets Exposed (60 s)." },
+                new[] { "Dying Light", "Por cada gancho que no sea la obsesión, los demás curan y reparan 3 % más lento.", "Each non-Obsession hook: others heal and repair 3% slower." },
+                new[] { "Enduring", "Los aturdimientos con palé le duran 50 % menos.", "Pallet stuns are 50% shorter." },
+                new[] { "Fire Up", "Por cada gen terminado: rompe, patea, salta y levanta 8 % más rápido (hasta 5).", "Each gen done: breaks, kicks, vaults and picks up 8% faster (up to 5)." },
+                new[] { "Forced Penance", "El que recibe un golpe por proteger a otro: Desesperanza (80 s).", "Whoever takes a protection hit: Broken (80 s)." },
+                new[] { "Franklins Demise", "Al golpearte se te cae el objeto, y ve los objetos tirados.", "Hits make you drop your item, and it sees dropped items." },
+                new[] { "Furtive Chase", "Al colgar a la obsesión: Celeridad e Indetectable (18 s). Quien la saque pasa a ser la obsesión.", "Hooking the Obsession: Haste and Undetectable (18 s). The rescuer becomes Obsession." },
+                new[] { "Gearhead", "Tras golpear a alguien (30 s), una prueba buena en un gen te revela (8 s).", "After a hit (30 s), a good skill check on a gen reveals you (8 s)." },
+                new[] { "Overcharge", "Gen pateado: retrocede cada vez más rápido y el que lo toca recibe una prueba difícil.", "Kicked gen: regresses faster and faster; the next to touch it gets a hard check." },
+                new[] { "Hangmans Trick", "4 ganchos de castigo. Cargando, ve a los que estén cerca de ellos; avisa si sabotean.", "4 Scourge Hooks. Carrying, sees those near them; alerted on sabotage." },
+                new[] { "Devour Hope", "Desenganches con él lejos dan fichas: Celeridad, luego Vulnerabilidad, luego mori.", "Unhooks while it's far give tokens: Haste, then Exposed, then mori." },
+                new[] { "Haunted Ground", "2 tótems: al limpiar uno, todos con Vulnerabilidad (60 s).", "2 totems: cleansing one gives everyone Exposed (60 s)." },
+                new[] { "Huntress Lullaby", "Con cada gancho, las pruebas avisan más tarde y son más chicas; fallar saca 6 % más.", "Each hook: later skill check warnings, smaller zones; misses cost 6% more." },
+                new[] { "Ruin", "Los gens que nadie repara retroceden solos al 150 %.", "Gens nobody is repairing regress on their own at 150%." },
+                new[] { "The Third Seal", "Cada golpe da Ceguera (hasta 4 supervivientes): no ves auras.", "Each hit gives Blindness (up to 4 Survivors): no Auras." },
+                new[] { "Thrill of the Hunt", "Al colgar, bloquea sus tótems de maleficio 6 s por cada uno encendido.", "On hook, blocks its Hex Totems 6 s for each one lit." },
+                new[] { "Blood Favor", "Al herir a alguien, los palés a 32 m quedan bloqueados (15 s).", "Injuring someone blocks pallets within 32 m (15 s)." },
+                new[] { "Retribution", "Empezar a limpiar un tótem: Inconsciencia (60 s). Limpiar un maleficio: ve a todos (20 s).", "Starting to cleanse: Oblivious (60 s). Cleansing a hex: sees everyone (20 s)." },
+                new[] { "Undying", "Si limpiás otro maleficio, pasa a este tótem. Ve a los que estén cerca de tótems.", "Cleansing another hex moves it here. Sees those near totems." },
+                new[] { "Im All Ears", "Saltos rápidos o entrar/salir de taquilla a 48 m te revelan (8 s).", "Fast vaults or locker entries within 48 m reveal you (8 s)." },
+                new[] { "Infectious Fright", "Al derribar a alguien, los que estén en su radio de terror gritan y los ubica.", "On a down, those in its Terror Radius scream and are located." },
+                new[] { "Insidious", "Quieto 2 s: Indetectable. Típico para campear el gancho.", "Still for 2 s: Undetectable. Typical for camping the hook." },
+                new[] { "Knock Out", "Tirás un palé y te alejás 10 m: Entorpecimiento 20 % (4 s).", "Drop a pallet and move 10 m away: 20% Hindered (4 s)." },
+                new[] { "Iron Grasp", "Mientras te carga, forcejeás 12 % más lento y con 75 % menos fuerza.", "While carried, you wiggle 12% slower and 75% weaker." },
+                new[] { "Iron Maiden", "Salir de una taquilla: gritás y Vulnerabilidad (30 s). Abre taquillas más rápido.", "Leaving a locker: you scream and get Exposed (30 s). Opens lockers faster." },
+                new[] { "Hoarder", "+2 cofres. Le avisa si agarrás un objeto o abrís un cofre a 64 m.", "+2 chests. Alerted when you pick up an item or open a chest within 64 m." },
+                new[] { "Oppression", "Al patear un gen, hasta 4 gens más retroceden y dan pruebas difíciles.", "Kicking a gen makes up to 4 more regress, with hard skill checks." },
+                new[] { "Coup de Grace", "Cada gen terminado da 2 fichas: estocadas 80 % más largas.", "Each gen done gives 2 tokens: 80% longer lunges." },
+                new[] { "Starstruck", "Mientras carga a alguien, los que estén en su radio: Vulnerabilidad (30 s después).", "While carrying, those in its Terror Radius: Exposed (lasts 30 s after)." },
+                new[] { "Crowd Control", "Las últimas 6 ventanas que saltás rápido quedan bloqueadas.", "The last 6 windows you fast-vault get blocked." },
+                new[] { "No Way Out", "En el End Game, al abrir una puerta se bloquea 12 s + 12 s por cada colgado.", "In the Endgame, opening a gate blocks it 12 s + 12 s per Survivor hooked." },
+                new[] { "Lethal Pursuer", "Al empezar ve a todos (9 s). Sus auras le duran 2 s más.", "At start sees everyone (9 s). Its Aura reveals last 2 s longer." },
+                new[] { "Hysteria", "Al herir a alguien sano, todos los heridos: Inconsciencia (40 s).", "When a healthy Survivor is injured, all injured get Oblivious (40 s)." },
+                new[] { "Eruption", "Gens pateados: al derribar, explotan (−10 %), retroceden y los que reparan gritan.", "Kicked gens: on a down they explode (−10%), regress and repairers scream." },
+                new[] { "Deadlock", "Gen terminado: el gen más avanzado queda bloqueado (25 s).", "Gen done: the most advanced gen is blocked (25 s)." },
+                new[] { "Plaything", "Al colgarte: Inconsciencia hasta limpiar su tótem (los otros no lo pueden limpiar 90 s).", "On your hook: Oblivious until you cleanse its totem (others can't for 90 s)." },
+                new[] { "Gift of Pain", "Desenganche de castigo: Hemorragia y Laceración; ya curado, reparás 16 % más lento.", "Scourge Hook unhook: Hemorrhage and Mangled; once healed, 16% slower repairs." },
+                new[] { "Grim Embrace", "Cada primer gancho bloquea todos los gens 10 s; con 4, 40 s y ve a la obsesión.", "Each first hook blocks all gens 10 s; at 4, 40 s and it sees the Obsession." },
+                new[] { "Pain Resonance", "4 ganchos de castigo: al colgar ahí, el gen más avanzado explota (−20 %) (4 veces).", "4 Scourge Hooks: hooking there explodes the most advanced gen (−20%) (4 times)." },
+                new[] { "Pentimento", "Reaviva tótems limpiados: con uno, curás y reparás 20 % más lento.", "Rekindles cleansed totems: with one, you heal and repair 20% slower." },
+                new[] { "Floods of Rage", "4 ganchos de castigo: al desenganchar de uno, ve a todos los demás (7 s).", "4 Scourge Hooks: an unhook from one shows it everyone else (7 s)." },
+                new[] { "Call of Brine", "Gen pateado: retrocede 50 % más rápido (90 s) y le avisa cada prueba buena.", "Kicked gen: regresses 50% faster (90 s) and good checks alert it." },
+                new[] { "Merciless Storm", "Gen al 90 %: pruebas difíciles seguidas; si fallás o soltás, se bloquea (20 s).", "Gen at 90%: chain of hard checks; miss or stop and it's blocked (20 s)." },
+                new[] { "Dissolution", "Tras golpear a alguien, el próximo palé que saltes en su radio se rompe.", "After a hit, the next pallet you vault in its Terror Radius breaks." },
+                new[] { "Darkness Revealed", "Al revisar una taquilla, ve a los que estén a 8 m de taquillas (8 s).", "Searching a locker shows it those within 8 m of lockers (8 s)." },
+                new[] { "Septic Touch", "Curarte en su radio de terror: Ceguera y Agotamiento.", "Healing in its Terror Radius: Blindness and Exhausted." },
+                new[] { "Superior Anatomy", "Si saltás cerca (12 m), su próximo salto de ventana es 40 % más rápido.", "If you vault nearby (12 m), its next window vault is 40% faster." },
+                new[] { "Awakened Awareness", "Mientras carga a alguien, ve a los que estén a 20 m.", "While carrying, sees those within 20 m." },
+                new[] { "Terminus", "En el End Game, heridos, derribados y colgados: Desesperanza.", "Endgame: injured, downed and hooked get Broken." },
+                new[] { "Nowhere to Hide", "Al patear un gen, ve a los que estén a 24 m de él (5 s).", "Kicking a gen shows it those within 24 m (5 s)." },
+                new[] { "Face the Darkness", "Mientras el herido siga herido, cada 25 s los que estén lejos gritan y los ve.", "While the hexed one stays injured, every 25 s far Survivors scream and are seen." },
+                new[] { "Hubris", "Si lo aturdís: Vulnerabilidad (30 s).", "If you stun it: Exposed (30 s)." },
+                new[] { "Game Afoot", "Persiguiendo a la obsesión, romper o patear da 10 % Celeridad (10 s).", "Chasing the Obsession, breaking or kicking gives 10% Haste (10 s)." },
+                new[] { "THWACK", "Al romper un palé o pared, los que estén a 36 m gritan y los ve (6 s).", "Breaking a pallet or wall: those within 36 m scream and are seen (6 s)." },
+                new[] { "Leverage", "Desenganchar (a otro o a vos): curás 30 % más lento (60 s).", "Unhooking (anyone or yourself): you heal 30% slower (60 s)." },
+                new[] { "Genetic Limits", "Cada golpe: Agotamiento (8 s).", "Every hit: Exhausted (8 s)." },
+                new[] { "Forced Hesitation", "Al derribar, los que estén a 16 m: Entorpecimiento 20 % (10 s).", "On a down, those within 16 m: 20% Hindered (10 s)." },
+                new[] { "Machine Learning", "Si terminan un gen que pateó: 8 % Celeridad e Indetectable (60 s).", "If you finish a gen it kicked: 8% Haste and Undetectable (60 s)." },
+                new[] { "Ultimate Weapon", "Al abrir una taquilla, los que estén a 40 m gritan y quedan con Ceguera (30 s).", "Opening a locker: those within 40 m scream and get Blindness (30 s)." },
+                new[] { "Rapid Brutality", "Cada golpe da 5 % Celeridad (10 s). No consigue sed de sangre.", "Each hit gives 5% Haste (10 s). No Bloodlust." },
+                new[] { "Alien Instinct", "Al colgar, el herido más lejano: Inconsciencia (60 s) y lo ve (8 s).", "On hook, the farthest injured: Oblivious (60 s) and seen (8 s)." },
+                new[] { "Two Can Play", "Cegarlo o aturdirlo te ciega 1,5 s.", "Blinding or stunning it blinds you for 1.5 s." },
+                new[] { "Friends Til the End", "Colgar a otro: la obsesión, Vulnerabilidad (20 s) y la ve.", "Hooking another: the Obsession gets Exposed (20 s) and is seen." },
+                new[] { "Batteries Included", "A 16 m de un gen terminado: 5 % Celeridad.", "Within 16 m of a completed gen: 5% Haste." },
+                new[] { "Unbound", "Tras herir a alguien, saltar ventanas le da 5 % Celeridad (25 s).", "After injuring someone, vaulting gives it 5% Haste (25 s)." },
+                new[] { "Unforeseen", "Gen pateado: el radio de terror sale de ese gen y él queda Indetectable (30 s).", "Kicked gen: the Terror Radius comes from that gen, it's Undetectable (30 s)." },
+                new[] { "Undone", "Cada gancho da fichas: su próxima patada saca 10 % más y bloquea 10 s por ficha.", "Hooks give tokens: its next kick takes 10% more and blocks 10 s per token." },
+                new[] { "Weave Attunement", "Los objetos gastados se caen; cerca de uno tirado, te ve. Agarrarlos: Inconsciencia.", "Depleted items drop; near one, it sees you. Picking up: Oblivious." },
+                new[] { "Languid Touch", "Espantar un cuervo a 36 m: Agotamiento (10 s).", "Scaring a crow within 36 m: Exhausted (10 s)." },
+                new[] { "Dark Arrogance", "Salta 25 % más rápido y falla menos, pero cegadas y palés le duran 25 % más.", "Vaults 25% faster and recovers faster, but blinds and pallets last 25% longer." },
+                new[] { "Wretched Fate", "Desde el primer gen: la obsesión repara 33 % más lento.", "From the first gen: the Obsession repairs 33% slower." },
+                new[] { "Human Greed", "Cierra cofres; acercarte a uno cerrado te revela (5 s).", "Locks chests; getting near a locked one reveals you (5 s)." },
+                new[] { "Dominance", "La primera vez que tocan cada tótem: se bloquea (25 s), gritás y te ve.", "First touch on each totem: blocked (25 s), you scream and are seen." },
+                new[] { "All Shaking Thunder", "Al caer de una altura, estocadas 75 % más largas (25 s).", "After dropping from a height, 75% longer lunges (25 s)." },
+                new[] { "Jagged Compass", "Los ganchos donde te desenganchan pasan a ser de castigo; ve el gen más avanzado.", "Unhooked hooks become Scourge Hooks; it sees the most advanced gen." },
+                new[] { "No Quarter", "Curándote solo al 75 %: pruebas difíciles; si fallás, Desesperanza (30 s).", "Self-healing at 75%: hard checks; miss and get Broken (30 s)." },
+                new[] { "Nothing But Misery", "Cada golpe: 5 % Entorpecimiento y saltos 10 % más lentos (15 s).", "Each hit: 5% Hindered and 10% slower vaults (15 s)." },
+                new[] { "Forever Entwined", "Cada golpe le da fichas: cuelga y levanta más rápido (hasta 32 %).", "Each hit gives tokens: faster hooking and pick-ups (up to 32%)." },
+                new[] { "None Are Free", "En el End Game, palés y ventanas bloqueados 16 s por cada colgado.", "Endgame: pallets and windows blocked 16 s per Survivor hooked." },
+                new[] { "Help Wanted", "Si terminan un gen que pateó: los demás retroceden al 150 % y golpea más rápido (90 s).", "If you finish a gen it kicked: others regress at 150%, faster hits (90 s)." },
+                new[] { "Phantom Fear", "Si lo mirás estando en su radio, gritás y te ve (2 s).", "Looking at it in its Terror Radius makes you scream; seen for 2 s." },
+                new[] { "Haywire", "Las puertas abiertas al 80 % o más retroceden; las luces parpadean.", "Gates at 80% or more regress; their lights flicker." },
+                new[] { "Ravenous", "Al colgar a los 4: todos gritan y quedan con Vulnerabilidad (90 s).", "After hooking all 4: everyone screams and gets Exposed (90 s)." },
+                new[] { "Wandering Eye", "Al empezar una persecución, ve a los heridos a 20 m (5 s).", "Starting a chase shows it injured Survivors within 20 m (5 s)." },
+                new[] { "Overture of Doom", "Reparar el gen marcado 5 s: Indetectable y el radio de terror sale de ese gen.", "Repairing the marked gen 5 s: Undetectable, Terror Radius from that gen." },
+                new[] { "Turn Back The Clock", "Tras colgar, puede hacer explotar un gen que vea a 20 m (−10 %).", "After a hook, can explode a gen it sees within 20 m (−10%)." },
+                new[] { "Secret Project", "Bendecir o limpiar un tótem bloquea un gen al azar (30 s).", "Blessing or cleansing a totem blocks a random gen (30 s)." },
+                new[] { "Hive Mind", "Ve el progreso de los gens. Con 1 gen restante, todos explotan (−10 %).", "Sees gen progress. With 1 gen left, all explode (−10%)." },
+                new[] { "Scared to Death", "Romper un palé en persecución: los que estén a 13 m gritan y Entorpecimiento.", "Breaking a pallet in chase: those within 13 m scream and get Hindered." },
+                new[] { "Silent Shadow", "Al colgar: Indetectable (13 s). En el End Game: siempre.", "On hook: Undetectable (13 s). Endgame: always." },
+                new[] { "Rampage", "Cada palé roto le da fichas: al cegarlo o aturdirlo gana Celeridad.", "Each broken pallet gives tokens: blinding or stunning it gives Haste." },
+                new[] { "Celestial Witness", "Cada 30 s ve a la obsesión si está a más de 40 m.", "Every 30 s sees the Obsession if farther than 40 m." },
+                new[] { "Under Your Thumb", "Tu Celeridad corriendo no pasa del 15 %; le avisa cuando la usás.", "Your running Haste caps at 15%; it's alerted when you use it." },
+                new[] { "Lay Waste", "Al patear un gen, retrocede más rápido según sus cargas.", "Kicking a gen makes it regress faster based on its charges." },
+                new[] { "Lightborn", "No lo podés cegar, y al intentarlo te ve (10 s).", "Can't be blinded; trying it reveals you (10 s)." },
+                new[] { "Mad Grit", "Mientras te carga, si falla un golpe se recupera al instante; si pega, no avanzás el forcejeo.", "While carrying, missed swings have no cooldown; hits pause your wiggle." },
+                new[] { "Make your Choice", "Desenganchar con él a 32 m o más: gritás y Vulnerabilidad (60 s).", "Unhooking while it's 32 m+ away: you scream and get Exposed (60 s)." },
+                new[] { "Mindbreaker", "Mientras reparás: Ceguera y Agotamiento (hasta 5 s después).", "While repairing: Blindness and Exhausted (until 5 s after)." },
+                new[] { "Monitor & Abuse", "Fuera de persecución, radio de terror 25 % más chico; persiguiendo, 15 % más grande.", "Out of chase, 25% smaller Terror Radius; in chase, 15% bigger." },
+                new[] { "Monstrous Shrine", "Sótano de castigo: con alguien colgado ahí y él lejos, los gens retroceden al 200 %.", "Scourge basement: with someone hooked there and it away, gens regress at 200%." },
+                new[] { "Nemesis", "Cegarlo o aturdirlo te hace la obsesión: Inconsciencia (60 s) y te ve (8 s).", "Blinding or stunning it makes you Obsession: Oblivious (60 s), seen (8 s)." },
+                new[] { "No One Escapes Death", "En el End Game: Vulnerabilidad para todos hasta limpiar su tótem.", "Endgame: everyone Exposed until its totem is cleansed." },
+                new[] { "A Nurses Calling", "Ve a los que se curan o están siendo curados a 32 m.", "Sees those healing or being healed within 32 m." },
+                new[] { "Overwhelming Presence", "Usar un objeto a 32 m: Agotamiento (15 s).", "Using an item within 32 m: Exhausted (15 s)." },
+                new[] { "Play With Your Food", "Cada vez que deja de perseguir a la obsesión: 5 % Celeridad (hasta 3).", "Each time it stops chasing the Obsession: 5% Haste (up to 3)." },
+                new[] { "Pop Goes the Weasel", "Tras colgar (45 s), su próxima patada al gen saca 15 % más.", "After a hook (45 s), its next gen kick takes 15% more." },
+                new[] { "Predator", "Cuando te pierde en persecución, te ve (4 s).", "When it loses you in chase, it sees you (4 s)." },
+                new[] { "Rancor", "En el End Game: la obsesión, Vulnerabilidad y puede hacerle mori.", "Endgame: the Obsession is Exposed and can be killed." },
+                new[] { "Remember Me", "Cada golpe a la obsesión hace que los demás abran puertas 30 % más lento.", "Each hit on the Obsession: others open gates 30% slower." },
+                new[] { "Save the best for last", "Golpear a otros (no a la obsesión) le acorta la pausa tras golpear.", "Hitting others (not the Obsession) shortens its hit cooldown." },
+                new[] { "Shadowborn", "Cegarlo le da 10 % Celeridad (10 s).", "Blinding it gives it 10% Haste (10 s)." },
+                new[] { "Sloppy Butcher", "Cada golpe: Hemorragia y Laceración; perdés progreso de curación.", "Each hit: Hemorrhage and Mangled; healing progress drains." },
+                new[] { "Spies from the Shadows", "Espantar un cuervo a 40 m le avisa dónde estás.", "Scaring a crow within 40 m alerts it." },
+                new[] { "Spirit Fury", "Después de romper 2 palés, el próximo que lo aturda se rompe.", "After breaking 2 pallets, the next one that stuns it breaks." },
+                new[] { "Stridor", "Tu respiración se escucha 25 % más fuerte y los quejidos 50 % más.", "Your breathing is 25% louder and grunts 50% louder." },
+                new[] { "Surge", "Al derribar, los gens a 32 m explotan (−8 %) y retroceden.", "On a down, gens within 32 m explode (−8%) and regress." },
+                new[] { "Surveillance", "Ve los gens que retroceden y escucha las reparaciones desde más lejos.", "Sees regressing gens and hears repairs from farther away." },
+                new[] { "Territorial Imperative", "Entrar al sótano con él lejos te revela (6 s).", "Entering the basement while it's away reveals you (6 s)." },
+                new[] { "Thanatophobia", "Por cada herido, derribado o colgado, todos reparan 2 % más lento (14 % más con los 4).", "Each injured, downed or hooked: everyone repairs 2% slower (14% more with all 4)." },
+                new[] { "Thrilling Tremors", "Al levantar a alguien, los gens que no se reparan quedan bloqueados (16 s).", "Picking someone up blocks gens not being repaired (16 s)." },
+                new[] { "Tinkerer", "Gen al 70 %: le avisa y queda Indetectable (16 s).", "Gen at 70%: it's alerted and Undetectable (16 s)." },
+                new[] { "Trail of Torment", "Al patear un gen, queda Indetectable mientras ese gen retrocede.", "Kicking a gen makes it Undetectable while that gen regresses." },
+                new[] { "Unnerving Presence", "En su radio de terror: más pruebas y 60 % más chicas.", "In its Terror Radius: more skill checks, 60% smaller." },
+                new[] { "Unrelenting", "Se recupera 40 % más rápido si falla un golpe y 10 % si pega.", "Recovers 40% faster from missed swings and 10% from hits." },
+                new[] { "Whispers", "Escucha susurros si hay alguien a 24 m; si no, 5 % Celeridad.", "Hears whispers when someone is within 24 m; otherwise 5% Haste." },
+                new[] { "Zanshin Tactics", "Ve palés y ventanas a 32 m; tirar un palé te revela (5 s).", "Sees pallets and windows within 32 m; dropping a pallet reveals you (5 s)." },
+            };
+            static Dictionary<string, string[]> perkBriefs;
+            static string PerkBrief(Entry e)
+            {
+                if (perkBriefs == null)
+                {
+                    perkBriefs = new Dictionary<string, string[]>();
+                    foreach (var p in PerkBriefList) perkBriefs[Bare(p[0])] = p;
+                }
+                string[] b;
+                string k = Bare(Regex.Replace(e.Name, @"^(Hex|Scourge Hook|Boon|Invocation):\s*", ""));
+                return perkBriefs.TryGetValue(k, out b) ? (DescEsNow ? b[1] : b[2]) : AddonBrief(e); // uno nuevo: resumen automatico
+            }
+
+            static string BriefOf(Entry e)
+            {
+                string[] b;
+                if (e != null && e.K == Kind.Addon) return AddonBrief(e);
+                if (e != null && e.K == Kind.Perk) return PerkBrief(e);
+                if (e == null || e.K != Kind.Offering || e.Action != null) return null; // los mapas tambien son "Offering" (con Action): sin descripcion
+                if (Brief.TryGetValue(e.Name, out b)) return L(b[0], b[1]);
+                // una que no esta en la lista (nueva): la descripcion del juego sin el "Secreto." del final
+                string d = Regex.Replace((DescEsNow ? e.Info : e.InfoEn) ?? "", @"\s*(Secreto|Secret)\.?\s*$", "").Trim();
+                return d.Length > 0 ? d : null;
+            }
+
+            // addon: el efecto en una o dos oraciones (sin citas, ambientacion ni la explicacion general de un estado)
+            static readonly Dictionary<string, string> briefCache = new Dictionary<string, string>();
+            static readonly Regex EffectStart = new Regex(@"^(Aumenta|Reduce|Disminuye|Los supervivientes|Al |Cuando|Mientras|Tras|Si |Cada|Obtienes|Revela|Otorga|Permite|Hace|Usa|Golpear|Consume|Todos|Puedes|Durante|Increases|Decreases|Reduces|Survivors|When|While|After|Upon|If |Each|Every|Gain|Reveals|Grants|Allows|Causes|Using|Direct|Automatically|All |Your|You |Hatchets|Setting|Sets|Rush|Lowers|Slightly|Moderately|Considerably|Tremendously)", RegexOptions.IgnoreCase);
+            static readonly Regex GlossaryLike = new Regex(@"^\p{Lu}[\p{L}-]+(\s[\p{L}-]+)?\s(impide|oculta|hace que|provoca|reduce la velocidad|prevents|hides|causes|makes|will put|reduces Survivor)\b");
+            static readonly Regex GlossaryTail = new Regex(@"(?<=\d\s?(?:s|segundos|seconds))\s+\p{Lu}[\p{L}-]+\s(impide|oculta|prevents|hides)\b.*$"); // sin punto en el original: "…6 s Agotamiento impide…"
+            // "Aumenta la duracion de X un 20 %" -> "+20 % duracion de X"; "Decreases X by 0.5 seconds" -> "-0.5 s X"
+            static string Shorten(string s)
+            {
+                s = s.Trim().TrimEnd('.');
+                s = Regex.Replace(s, @":(?=\S)", ": ");
+                string num = @"(\d[\d.,]*(?:\s?(?:%|m/s|metros?|meters?|segundos?|seconds?|grados|degrees|m|s)(?!\p{L}))?)";
+                var m = Regex.Match(s, @"^(Aumenta|Reduce|Disminuye)\s+(?:en\s+)?(?:un\s+)?(.+?)\s+(?:en\s+|un\s+)+" + num + @"(.*)$");
+                if (!m.Success) m = Regex.Match(s, @"^(Increases|Decreases|Reduces|Lowers)\s+(.+?)\s+by\s+" + num + @"(.*)$");
+                if (m.Success)
+                {
+                    string sign = Regex.IsMatch(m.Groups[1].Value, "^(Aumenta|Increases)") ? "+" : "−";
+                    string what = Regex.Replace(m.Groups[2].Value, @"^(el|la|los|las|the)\s+", "", RegexOptions.IgnoreCase);
+                    what = Regex.Replace(what, @"^(tiempo que tardan? en|tiempo necesario para|time required to)\s+", "", RegexOptions.IgnoreCase);
+                    s = sign + m.Groups[3].Value.Trim() + " " + what + m.Groups[4].Value;
+                    s = Regex.Replace(s, @"^([+−]\S+(?:\s(?:%|m|s|segundos?|seconds?|metros?|meters?))?)\s+en\s+(?:la|el|los|las)\s+", "$1 "); // "+1 s en la duracion" -> "+1 s duracion"
+                }
+                s = Regex.Replace(s, @"\s+(durante|for)\s+(\d[\d.,]*\s?(?:segundos|seconds|s))\b", " ($2)");
+                return s.Trim() + ".";
+            }
+
+            // estados del juego: en la descripcion van como su icono (el que el juego muestra en pantalla)
+            static readonly string[][] StatusIcons = {
+                new[] { "exhausted", "Agotamiento", "Exhausted" }, new[] { "hindered", "Entorpecimiento", "Hindered" },
+                new[] { "undetectable", "Indetectable", "Undetectable" }, new[] { "exposed", "Vulnerabilidad", "Exposed" },
+                new[] { "deepWound", "Herida profunda", "Deep Wound" }, new[] { "oblivious", "Inconsciencia", "Oblivious" },
+                new[] { "incapacitated", "Incapacitación", "Incapacitated" }, new[] { "bleeding", "Hemorragia", "Hemorrhage" },
+                new[] { "bleeding", "Hemorragia", "Haemorrhage" }, new[] { "mangled", "Laceración", "Mangled" },
+                new[] { "broken", "Desesperanza", "Broken" }, new[] { "haste", "Celeridad", "Haste" }, new[] { "madness", "Locura", "Madness" }, new[] { "blindness", "Ceguera", "Blindness" } };
+            public static bool DescEsNow = true;   // idioma de las descripciones (Configuracion > General)
+            public static string StatusMode = "ambos"; // ambos | icono | texto
+            static string Iconize(string s)
+            {
+                if (StatusMode == "texto")
+                {
+                    // sin iconos: igual se saca el relleno ("el efecto de estado X" -> "X")
+                    s = Regex.Replace(s, @"(?:el\s+)?efecto\s+de\s+estado\s+", "");
+                    return Regex.Replace(s, @"(?:the\s+)?(\p{Lu}[\p{L} ]*?)\s+status\s+effect\b", "$1");
+                }
+                foreach (var si in StatusIcons)
+                foreach (var w in new[] { si[1], si[2] })
+                {
+                    string ph = "\u0001" + si[0] + "\u0001";
+                    // "el efecto de estado Agotamiento" / "the Exhausted status effect" -> el icono solo
+                    s = Regex.Replace(s, @"(?:el\s+)?efecto\s+de\s+estado\s+" + Regex.Escape(w) + @"\b", ph);
+                    s = Regex.Replace(s, @"(?:the\s+)?" + Regex.Escape(w) + @"\s+status\s+effect\b", ph);
+                    s = Regex.Replace(s, @"(?<![\p{L}])" + Regex.Escape(w) + @"(?![\p{L}])", ph);
+                }
+                return s;
+            }
+            static readonly Regex StatusTok = new Regex(@"^(\(?)\u0001(\w+)\u0001(.*)$");
+            static string StatusWord(string key)
+            {
+                var si = StatusIcons.FirstOrDefault(x => x[0] == key);
+                return si == null ? key : DescEsNow ? si[1] : si[2];
+            }
+
+            static string AddonBrief(Entry e)
+            {
+                string key = (DescEsNow ? "es|" : "en|") + e.Killer + "|" + e.Name, b;
+                if (briefCache.TryGetValue(key, out b)) return b;
+                string all = ((DescEsNow ? e.Info : e.InfoEn) ?? "").Replace("\r", "");
+                var paras = Regex.Split(all, @"\n\s*\n").Select(p => p.Trim()).Where(p => p.Length > 0 && !Regex.IsMatch(p, "^[\"“”«]")).ToList();
+                string para = paras.FirstOrDefault(p => EffectStart.IsMatch(p)) ?? paras.FirstOrDefault() ?? "";
+                para = Regex.Replace(para, @"\s+", " ");
+                var sents = Regex.Split(para, @"(?<=[.!?])\s+(?=\p{Lu})").Where(s => s.Length > 0).ToList();
+                // "Agotamiento impide que…" / "Exhausted prevents…": explica el estado en general, no el addon
+                sents = sents.Where((s, i) => i == 0 || !GlossaryLike.IsMatch(s)).ToList();
+                if (sents.Count > 0) sents[0] = GlossaryTail.Replace(sents[0], ".");
+                // una oracion (dos solo si la primera es muy corta), en forma corta: "+20 % velocidad…", "(10 s)"
+                int take = sents.Count > 1 && sents[0].Length < 45 ? 2 : 1;
+                string res = string.Join(" ", sents.Take(take).Select(Shorten));
+                if (sents.Count > take) res += " …";
+                res = Regex.Replace(res, @"(\d)\s*(metros|meters|metres)\b", "$1 m");
+                res = Regex.Replace(res, @"(\d)\s*(segundos|seconds)\b", "$1 s");
+                res = Regex.Replace(res, @"(\d)\s*(segundo|second)\b", "$1 s");
+                res = res.Trim();
+                briefCache[key] = res.Length > 0 ? res : null;
+                return briefCache[key];
+            }
+
+            static int OffGroup(Entry e)
+            {
+                if (e.K != Kind.Offering || e.Action != null) return -1;
+                string n = e.Name;
+                if (e.Rarity == "mapa") return 0;
+                if (n.Contains("Memento Mori")) return 1;
+                if (e.Rarity == "ganchos" || n.EndsWith(" Oak")) return 2;     // ganchos (distancia entre ganchos)
+                if (e.Rarity == "cofres" || n.EndsWith(" Coin")) return 3;     // cofres
+                if (e.Rarity == "niebla" || n.EndsWith(" Reagent")) return 4;  // niebla
+                if (n.Contains("Bloodied Blueprint") || n.Contains("Torn Blueprint")) return 5; // sotano
+                if (n.Contains("Blueprint")) return 6;      // trampilla
+                return 7;                                   // Black Ward, Shroud of Vanishing, otras
+            }
+            static string LetterOf(string n)
+            {
+                string s = Txt.Norm(n);
+                return s.Length > 0 && char.IsLetter(s[0]) ? s.Substring(0, 1).ToUpperInvariant() : "#";
+            }
+
+            // icono centrado en (cx, cy): los cuadrados ocupan s x s; los anchos (fotos de mapas) un poco mas de ancho, sin deformarse
+            // abre otra rueda (categoria, letra, reino, "mas…", quitar); deshacer y lo que se elige, no
+            static bool IsSub(Seg s) { return s.E == null && s.Glyph != "↶"; }
+            static bool IsPhoto(Seg s)
+            {
+                if (s.E != null) return s.E.Icon != null && s.E.Action != null && s.E.Action.StartsWith("mapa:");
+                return s.Icon != null && s.Icon.StartsWith("IconMap_");
+            }
+            static void Fit(Graphics g, Image im, float cx, float cy, float s)
+            {
+                float sc = Math.Min(s * 1.4f / im.Width, s / (float)im.Height);
+                int w = Math.Max(1, (int)Math.Round(im.Width * sc)), h = Math.Max(1, (int)Math.Round(im.Height * sc));
+                g.DrawImageUnscaled(Scaled(im, w, h), (int)Math.Round(cx - w / 2f), (int)Math.Round(cy - h / 2f));
+            }
+            // iconos ya achicados (achicar en alta calidad en cada repintada era lo que hacia lenta la rueda)
+            static readonly Dictionary<Tuple<Image, int, int>, Bitmap> scaledCache = new Dictionary<Tuple<Image, int, int>, Bitmap>();
+            static Bitmap Scaled(Image im, int w, int h)
+            {
+                var k = Tuple.Create(im, w, h);
+                Bitmap b;
+                if (scaledCache.TryGetValue(k, out b)) return b;
+                b = new Bitmap(w, h);
+                using (var g = Graphics.FromImage(b))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    g.DrawImage(im, 0, 0, w, h);
+                }
+                return scaledCache[k] = b;
+            }
+            // la foto de un mapa recortada con la forma de su porcion (por cantidad de porciones y posicion)
+            static readonly Dictionary<Tuple<Image, int, int>, Bitmap> photoCache = new Dictionary<Tuple<Image, int, int>, Bitmap>();
+            static Bitmap SegPhoto(Image photo, System.Drawing.Drawing2D.GraphicsPath path, int n, int i)
+            {
+                var k = Tuple.Create(photo, n, i);
+                Bitmap b;
+                if (photoCache.TryGetValue(k, out b)) return b;
+                var bb = path.GetBounds();
+                int x0 = (int)Math.Floor(bb.X), y0 = (int)Math.Floor(bb.Y);
+                b = new Bitmap(Math.Max(1, (int)Math.Ceiling(bb.Right) - x0), Math.Max(1, (int)Math.Ceiling(bb.Bottom) - y0));
+                using (var g = Graphics.FromImage(b))
+                using (var p = (System.Drawing.Drawing2D.GraphicsPath)path.Clone())
+                {
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    using (var mx = new System.Drawing.Drawing2D.Matrix()) { mx.Translate(-x0, -y0); p.Transform(mx); }
+                    g.SetClip(p);
+                    float sc = Math.Max(bb.Width / photo.Width, bb.Height / photo.Height);
+                    float pw = photo.Width * sc, ph = photo.Height * sc;
+                    g.DrawImage(photo, bb.X - x0 + (bb.Width - pw) / 2, bb.Y - y0 + (bb.Height - ph) / 2, pw, ph);
+                }
+                return photoCache[k] = b;
+            }
+
+            Level Root()
+            {
+                var lv = new Level { Title = L("¿QUÉ VISTE?", "WHAT DID YOU SEE?") };
+                // iconos genericos del juego (los de la ayuda de la wiki)
+                Func<string, string, Func<List<Entry>>, Seg> C = (t, icon, items) => new Seg { Label = t, Big = t.ToUpperInvariant(), Icon = icon, Go = () => Push(Group(t, items())) };
+                // perks: frecuentes + categorias (por defecto) o por letra (Configuracion > Rueda)
+                lv.Segs.Add(new Seg { Label = "Perk", Big = "PERK", Icon = "IconHelp_perks.png",
+                                      Go = () => Push(ov.cfg.Get("RuedaPerks", "categorias") == "letras" ? Group("Perk", ov.cat.Perks.ToList()) : PerkLevel()) });
+                // addons: solo con el killer anotado (sin killer serian cientos y no sabrias cuales son de quien)
+                if (ov.st.Killer != null)
+                    lv.Segs.Add(C(L("Addon", "Add-on"), "IconHelp_addons.png", () => ov.cat.Addons.Where(a => a.Killer == ov.st.Killer.Name).ToList()));
+                // ofrendas: solo las secretas (las demas el juego las muestra a todos al empezar)
+                lv.Segs.Add(C(L("Ofrenda", "Offering"), "IconHelp_offerings.png", () => ov.cat.Offerings.Where(o => o.Synth || (o.Secret && !Regex.IsMatch(o.Name, @" (Reagent|Oak|Coin)$"))).ToList()));
+                // killers: por tipo de poder (por defecto), originales/licenciados, mas jugados o por letra (Configuracion > Rueda)
+                lv.Segs.Add(new Seg { Label = "Killer", Big = "KILLER", Icon = "IconHelpLoading_killer.png", Go = () => Push(KillerLevel()) });
+                lv.Segs.Add(new Seg { Label = L("Mapa", "Map"), Big = L("MAPA", "MAP"), Icon = "IconItems_CrypticMap.png", Go = () =>
+                {
+                    var maps = ov.cat.Maps.Where(m => ov.cat.MapFiles.ContainsKey(m.Name)).ToList();
+                    Push(ov.cfg.Get("RuedaMapas", "reino") == "letras" ? Group(L("Mapa", "Map"), maps) : RealmLevel(maps));
+                } });
+                // quitar: solo si hay algo anotado; muestra lo anotado y al elegir se borra
+                if (ov.st.Current().Count > 0)
+                    lv.Segs.Add(new Seg { Label = L("Quitar", "Remove"), Big = L("QUITAR", "REMOVE"), Glyph = "✖", Go = () => Push(RemoveLevel()) });
+                if (ov.st.CanUndo)
+                    lv.Segs.Add(new Seg { Label = L("Deshacer lo último", "Undo the last change"), Big = L("DESHACER", "UNDO"), Glyph = "↶",
+                                          Go = () => { Hide(); ov.BoxDo(L("deshacer", "undo"), () => { string w = ov.st.Apply("deshacer"); int i = w.IndexOf(" · "); return i > 0 ? w.Substring(0, i) : w; }); } });
+                return lv;
+            }
+
+            // categorias de perks por lo que hacen (se clasifican solos por la descripcion en ingles, sin depender del idioma)
+            static readonly string[][] PerkCats = {
+                new[] { "Maleficios", "Hexes", "IconHelpLoading_totem.png", "MALEFICIOS", "HEXES" },
+                new[] { "Ganchos", "Hooks", "IconHelp_scourgeHooks.png", "GANCHOS", "HOOKS" },
+                new[] { "Generadores bloqueados", "Blocked generators", "IconHelpLoading_generators.png", "BLOQUEO", "BLOCKING" },
+                new[] { "Generadores que retroceden", "Generator regression", "IconHelpLoading_generatorRegression.png", "REGRESIÓN", "REGRESSION" },
+                new[] { "Auras", "Auras", "IconHelp_auras.png", "AURAS", "AURAS" },
+                new[] { "Información (gritos, avisos)", "Info (screams, alerts)", "IconHelp_hearing.png", "INFO", "INFO" },
+                new[] { "Persecución", "Chase", "IconHelp_chase.png", "PERSECUCIÓN", "CHASE" },
+                new[] { "Estados", "Status effects", "IconHelp_statusEffects.png", "ESTADOS", "STATUS" },
+                new[] { "End Game", "Endgame", "IconHelp_exitGates.png", "END GAME", "ENDGAME" },
+                new[] { "Otros", "Other", "IconHelp_perks.png", "OTROS", "OTHER" } };
+            static int PerkCat(Entry e)
+            {
+                string n = e.Name, d = e.InfoEn ?? "";
+                const RegexOptions I = RegexOptions.IgnoreCase;
+                if (n.StartsWith("Hex:")) return 0;
+                if (n.StartsWith("Scourge Hook:")) return 1;
+                if (Regex.IsMatch(d, @"exit gates?|end ?game|endgame collapse|last generator is completed|all generators (are|have been) (completed|repaired|powered)", I)) return 8;
+                if (Regex.IsMatch(d, @"generator", I)) return Regex.IsMatch(d, @"\bblock|cannot be repaired|can.t be repaired", I) ? 2 : 3;
+                if (Regex.IsMatch(d, @"\baura", I)) return 4;
+                if (Regex.IsMatch(d, @"Killer Instinct|reveal|scream|notification|location|loud noise", I)) return 5;
+                if (Regex.IsMatch(d, @"Exposed|Hindered|Deep Wound|Mangled|Broken|Haemorrhage|Hemorrhage|Oblivious|Undetectable|Exhausted|Blindness|Incapacitated|Madness", I)) return 7;
+                if (Regex.IsMatch(d, @"chase|pallet|vault|window|Endurance|lunge|Haste|movement speed|Terror Radius|Bloodlust|Obsession|attack", I)) return 6;
+                if (Regex.IsMatch(d, @"hook|basement|sacrific|dying state|carry|pick ?up|wiggle", I)) return 1;
+                return 9;
+            }
+            Level PerkLevel()
+            {
+                var lv = new Level { Title = "PERK" };
+                for (int i = 0; i < PerkCats.Length; i++)
+                {
+                    int ci = i;
+                    string name = L(PerkCats[i][0], PerkCats[i][1]);
+                    if (!ov.cat.Perks.Any(p => PerkCat(p) == ci)) continue;
+                    // se arma al entrar: los mas usados arriba (los tuyos y los de la comunidad), despues el resto por nombre
+                    lv.Segs.Add(new Seg { Label = name, Big = L(PerkCats[i][3], PerkCats[i][4]), Icon = PerkCats[i][2], Group = 1, Go = () =>
+                    {
+                        var all = ov.cat.Perks.Where(p => PerkCat(p) == ci).ToList();
+                        var top = new HashSet<Entry>(all.Where(p => ov.PerkScore(p) > 0).OrderByDescending(p => ov.PerkScore(p)).Take(Math.Max(3, all.Count / 3)));
+                        var list = all.Where(top.Contains).OrderByDescending(p => ov.PerkScore(p))
+                                      .Concat(all.Where(p => !top.Contains(p)).OrderBy(p => SortName(p), StringComparer.OrdinalIgnoreCase)).ToList();
+                        // categorias grandes: los que casi nadie usa van a una segunda rueda (salvo que vos los hayas anotado)
+                        var rare = all.Count > 12 ? list.Where(p => IsRarePerk(p) && ov.PerkScore(p) < 1000).ToList() : new List<Entry>();
+                        var lvl = Items(name, list.Except(rare).ToList(), 0, top);
+                        if (rare.Count > 0)
+                            lvl.Segs.Add(new Seg { Label = L("Poco usados (", "Rarely used (") + rare.Count + ")", Glyph = "⋯", Big = "+" + rare.Count,
+                                                   Go = () => Push(Items(name + L(" · poco usados", " · rarely used"), rare, 0)) });
+                        Push(lvl);
+                    } });
+                }
+                return lv;
+            }
+
+            // killers por tipo de poder: lo que ves que hace en la partida. Icono: el retrato de uno que lo representa.
+            static readonly string[][] KillerPower = {
+                new[] { "A distancia", "Ranged", "The Huntress", "The Huntress", "The Clown", "The Deathslinger", "The Trickster", "The Artist", "The Unknown",
+                        "The Houndmaster", "The Lich" },
+                new[] { "Movilidad", "Mobility", "The Nurse", "The Hillbilly", "The Nurse", "The Blight", "The Spirit", "The Demogorgon", "The Oni", "The Dredge",
+                        "The Ghoul", "The Krasue", "The Dark Lord", "The Twins", "The Singularity", "The Cannibal" },
+                new[] { "Sigilo", "Stealth", "The Shape", "The Wraith", "The Shape", "The Ghost Face", "The Pig", "The Onryō", "The Good Guy",
+                        "The Xenomorph", "The Animatronic" },
+                new[] { "Trampas y zona", "Traps & zoning", "The Trapper", "The Trapper", "The Hag", "The Nightmare", "The Skull Merchant", "The Knight",
+                        "The Executioner", "The Cenobite" },
+                new[] { "Estados e infección", "Status & infection", "The Plague", "The Doctor", "The Plague", "The Legion", "The Mastermind", "The Nemesis" } };
+            static readonly string[] LicensedKillers = { "The Shape", "The Nightmare", "The Pig", "The Ghost Face", "The Demogorgon", "The Executioner",
+                "The Nemesis", "The Cenobite", "The Onryō", "The Mastermind", "The Xenomorph", "The Good Guy", "The Lich", "The Dark Lord",
+                "The Animatronic", "The Cannibal", "The Ghoul", "The First", "The Slasher" };
+            Seg KillerGroup(string name, string rep, List<Entry> list, bool byPop)
+            {
+                var r = ov.cat.Killers.FirstOrDefault(k => k.Name == rep);
+                return new Seg { Label = name + " (" + list.Count + ")", Big = name.ToUpperInvariant(), Icon = r != null ? r.Icon : "IconHelpLoading_killer.png",
+                                 Go = () => Push(Items(name, byPop ? list.OrderByDescending(k => ov.KillerScore(k)).ToList() : list.OrderBy(k => SortName(k), StringComparer.OrdinalIgnoreCase).ToList(), 0)) };
+            }
+            Level KillerLevel()
+            {
+                string mode = ov.cfg.Get("RuedaKillers", "poder");
+                var all = ov.cat.Killers.ToList();
+                if (mode == "letras") return Group("Killer", all);
+                var lv = new Level { Title = "KILLER" };
+                if (mode == "licencia")
+                {
+                    var lic = all.Where(k => LicensedKillers.Contains(k.Name)).ToList();
+                    lv.Segs.Add(KillerGroup(L("Originales", "Originals"), "The Trapper", all.Except(lic).ToList(), true));
+                    lv.Segs.Add(KillerGroup(L("Licenciados", "Licensed"), "The Shape", lic, true));
+                    return lv;
+                }
+                if (mode == "jugados")
+                {
+                    // los mas jugados directo; el resto en una segunda rueda
+                    var pop = all.OrderByDescending(k => ov.KillerScore(k)).ToList();
+                    var lvl = Items("Killer", pop.Take(15).ToList(), 0);
+                    var rest = pop.Skip(15).OrderBy(k => SortName(k), StringComparer.OrdinalIgnoreCase).ToList();
+                    if (rest.Count > 0)
+                        lvl.Segs.Add(new Seg { Label = L("Los demás (", "The rest (") + rest.Count + ")", Glyph = "⋯", Big = "+" + rest.Count,
+                                               Go = () => Push(Items(L("Killer · los demás", "Killer · the rest"), rest, 0)) });
+                    return lvl;
+                }
+                var used = new HashSet<Entry>();
+                foreach (var g in KillerPower)
+                {
+                    var list = g.Skip(3).Select(n => all.FirstOrDefault(k => k.Name == n)).Where(k => k != null).ToList();
+                    used.UnionWith(list);
+                    if (list.Count > 0) lv.Segs.Add(KillerGroup(L(g[0], g[1]), g[2], list, true));
+                }
+                var other = all.Where(k => !used.Contains(k)).ToList(); // los nuevos caen aca hasta que se los ubique
+                if (other.Count > 0)
+                    lv.Segs.Add(new Seg { Label = L("Otros", "Other") + " (" + other.Count + ")", Big = L("OTROS", "OTHER"), Icon = "IconHelpLoading_killer.png",
+                                          Go = () => Push(Items(L("Otros", "Other"), other.OrderByDescending(k => ov.KillerScore(k)).ToList(), 0)) });
+                return lv;
+            }
+
+            // mapas por reino (como en el juego): cada reino con la foto de uno de sus mapas; si tiene uno solo, se elige directo
+            Level RealmLevel(List<Entry> maps)
+            {
+                var lv = new Level { Title = L("REINO", "REALM") };
+                var singles = new List<Entry>();
+                foreach (var g in maps.GroupBy(m => m.ActionTag ?? "").OrderBy(g => Regex.Replace(g.Key, "^The ", ""), StringComparer.OrdinalIgnoreCase))
+                {
+                    var list = g.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                    // los reinos de un solo mapa (casi todos de licencias) van juntos
+                    if (list.Count == 1 || g.Key.Length == 0) { singles.AddRange(list); continue; }
+                    string realm = g.Key;
+                    var rep = list.FirstOrDefault(m => m.Icon != null);
+                    lv.Segs.Add(new Seg { Label = realm + " (" + list.Count + ")", Big = realm, Icon = rep != null ? rep.Icon : "IconItems_CrypticMap.png",
+                                          Go = () => Push(Items(realm, list, 0)) });
+                }
+                if (singles.Count > 0)
+                {
+                    string t = L("Un mapa", "Single map");
+                    var sl = singles.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                    lv.Segs.Add(new Seg { Label = t + " (" + sl.Count + ")", Big = t, Glyph = "⋯", Go = () => Push(Items(t, sl, 0)) });
+                }
+                return lv;
+            }
+
+            Level RemoveLevel()
+            {
+                var lv = new Level { Title = L("¿QUÉ QUITO?", "REMOVE WHAT?") };
+                foreach (var e in ov.st.Current())
+                {
+                    var en = e;
+                    lv.Segs.Add(new Seg { Label = L("Quitar ", "Remove ") + ov.DName(en), E = en, Go = () => { Hide(); ov.BoxRemove(en); } });
+                }
+                return lv;
+            }
+
+            // muchos: primero la letra; pocos (los addons del killer anotado): directo
+            Level Group(string title, List<Entry> items)
+            {
+                items = items.OrderBy(e => e.Synth ? 0 : 1).ThenBy(e => SortName(e), StringComparer.OrdinalIgnoreCase).ToList(); // "Ofrenda de mapa" primero
+                if (items.Count <= 24)
+                {
+                    if (items.All(e => e.K == Kind.Addon)) items = items.OrderBy(e => RarRank(e.Rarity)).ThenBy(e => SortName(e), StringComparer.OrdinalIgnoreCase).ToList();
+                    // ofrendas: por tipo (mapa, moris, oaks, coins, niebla, sotano, trampilla...) y dentro de cada tipo de la mas debil a la mas fuerte
+                    else if (items.All(e => e.K == Kind.Offering && e.Action == null)) items = items.OrderBy(e => OffGroup(e)).ThenByDescending(e => RarRank(e.Rarity)).ThenBy(e => SortName(e), StringComparer.OrdinalIgnoreCase).ToList();
+                    return Items(title, items, 0);
+                }
+                var lv = new Level { Title = title.ToUpperInvariant() };
+                foreach (var g in items.GroupBy(e => LetterOf(SortName(e))).OrderBy(g => g.Key == "#" ? "~" : g.Key))
+                {
+                    var list = g.ToList(); string letter = g.Key;
+                    lv.Segs.Add(new Seg { Label = title + " · " + letter + " (" + list.Count + ")", Big = letter, Small = list.Count.ToString(), Go = () => Push(Items(title + " · " + letter, list, 0)) });
+                }
+                return lv;
+            }
+
+            // los de una letra (16 por rueda; si hay mas, la ultima seccion es "mas")
+            Level Items(string title, List<Entry> items, int page, HashSet<Entry> top = null)
+            {
+                int per = items.Count <= 26 ? 26 : 16; // hasta 24 (los addons de un killer, las ofrendas secretas) entran en una sola rueda
+                var lv = new Level { Title = title.ToUpperInvariant() };
+                bool more = items.Count > per;
+                int take = more ? per - 1 : per, pages = more ? (items.Count + take - 1) / take : 1;
+                foreach (var e in items.Skip(page * take).Take(take))
+                {
+                    var en = e;
+                    bool on = en == ov.st.Killer || ov.st.Perks.Contains(en) || ov.st.Addons.Contains(en) || en == ov.st.Offering || (en.Action != null && en.Action == "mapa:" + ov.mapShown);
+                    lv.Segs.Add(new Seg { Label = ov.DName(en), E = en, Marked = on, Group = top != null ? (top.Contains(en) ? 0 : 1) : OffGroup(en),
+                                          Go = () => { Hide(); ov.WheelPick(en); } }); // elegido: se cierra
+                }
+                if (more)
+                {
+                    int next = (page + 1) % pages;
+                    lv.Segs.Add(new Seg { Label = L("Más… (", "More… (") + (next + 1) + "/" + pages + ")", Big = "…", Go = () => { stack.RemoveAt(stack.Count - 1); Push(Items(title, items, next, top)); } });
+                }
+                return lv;
+            }
+
+            void Push(Level l) { stack.Add(l); hover = -1; Invalidate(); }
+            void Back()
+            {
+                if (stack.Count > 1) stack.RemoveAt(stack.Count - 1); else { Hide(); return; }
+                hover = -1; Invalidate();
+            }
+            Level Cur { get { return stack[stack.Count - 1]; } }
+
+            int HitTest(Point p)
+            {
+                double dx = p.X - D / 2.0, dy = p.Y - D / 2.0, dist = Math.Sqrt(dx * dx + dy * dy);
+                if (dist < Rin) return -2;
+                if (dist > R) return -1;
+                int n = Cur.Segs.Count;
+                if (n == 0) return -1;
+                double per = 360.0 / n;
+                double ang = Math.Atan2(dy, dx) * 180 / Math.PI + 90 + per / 2; // 0 = arriba, sentido horario
+                ang = ((ang % 360) + 360) % 360;
+                return Math.Min(n - 1, (int)(ang / per));
+            }
+
+            protected override void OnMouseMove(MouseEventArgs e)
+            {
+                if (Gesture) return;
+                int h = HitTest(e.Location);
+                if (h != hover) { hover = h; Invalidate(); }
+            }
+            protected override void OnMouseLeave(EventArgs e) { if (!Gesture && hover != -1) { hover = -1; Invalidate(); } }
+            protected override void OnMouseUp(MouseEventArgs e)
+            {
+                if (Gesture) return;
+                if (e.Button == MouseButtons.Right) { Back(); return; }
+                if (e.Button != MouseButtons.Left) return;
+                int h = HitTest(e.Location);
+                if (h == -2) Back();
+                else if (h >= 0) Cur.Segs[h].Go();
+            }
+
+            // la rueda se dibuja en una imagen y solo se rehace si cambio algo; mover el puntero (modo gesto) solo repinta el punto
+            Bitmap cache; bool fullNeeded = true, pointerOnly;
+            protected override void OnInvalidated(InvalidateEventArgs e)
+            {
+                if (!pointerOnly) fullNeeded = true;
+                pointerOnly = false;
+                base.OnInvalidated(e);
+            }
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                if (cache == null || cache.Width != ClientSize.Width || cache.Height != ClientSize.Height)
+                {
+                    if (cache != null) cache.Dispose();
+                    cache = new Bitmap(Math.Max(1, ClientSize.Width), Math.Max(1, ClientSize.Height));
+                    fullNeeded = true;
+                }
+                if (fullNeeded)
+                {
+                    using (var cg = Graphics.FromImage(cache)) PaintWheel(new PaintEventArgs(cg, new Rectangle(Point.Empty, cache.Size)));
+                    fullNeeded = false;
+                }
+                e.Graphics.DrawImageUnscaled(cache, 0, 0);
+                if (Gesture && steering && (vx != 0 || vy != 0) && ov.cfg.Get("RuedaPuntero", "no") == "si")
+                {
+                    // el "cursor" de la rueda: hacia donde estas apuntando
+                    var g = e.Graphics;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    float c = D / 2f, k = (R - 24) / SteerMax;
+                    float px = c + vx * k, py = c + vy * k;
+                    float vl = (float)Math.Sqrt(vx * vx + vy * vy);
+                    if (vl * k > Rin)
+                        using (var p = new Pen(Color.FromArgb(160, 255, 255, 255), 2f)) g.DrawLine(p, c + vx / vl * Rin, c + vy / vl * Rin, px, py);
+                    using (var b = new SolidBrush(Color.White)) g.FillEllipse(b, px - 7, py - 7, 14, 14);
+                    using (var p = new Pen(Color.FromArgb(214, 32, 44), 3f)) g.DrawEllipse(p, px - 7, py - 7, 14, 14);
+                }
+            }
+            protected override void OnPaintBackground(PaintEventArgs e) { }
+            Bitmap baseBmp; string baseKey;
+            public void RefreshIcons() { baseKey = null; Invalidate(); } // bajo un icono: rehacer la base
+            void DrawRim(Graphics g, List<Seg> segs, float per, float c, RectangleF outer)
+            {
+                if (segs.Count > 1 && segs.Any(s => s.Group >= 0))
+                    using (var p = new Pen(Color.FromArgb(225, 215, 205), 3f))
+                        for (int i = 0; i < segs.Count; i++)
+                        {
+                            int prev = (i + segs.Count - 1) % segs.Count;
+                            if (segs[i].Group == segs[prev].Group) continue;
+                            double a = (-90 - per / 2 + i * per) * Math.PI / 180;
+                            g.DrawLine(p, c + (float)(Math.Cos(a) * Rin), c + (float)(Math.Sin(a) * Rin), c + (float)(Math.Cos(a) * R), c + (float)(Math.Sin(a) * R));
+                        }
+                using (var p = new Pen(Color.FromArgb(90, 84, 88), 2f)) g.DrawEllipse(p, outer);
+            }
+            // una porcion (hov: cual esta marcada, o -1)
+            void DrawSeg(Graphics g, int i, int hov, List<Seg> segs, int n, float per, float c, RectangleF outer, RectangleF inner)
+            {
+                    float a0 = -90 - per / 2 + i * per;
+                    using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+                    {
+                        path.AddArc(outer, a0, per);
+                        path.AddArc(inner, a0 + per, -per);
+                        path.CloseFigure();
+                        Color? rc = RarColor(segs[i].E);
+                        Image photo = IsPhoto(segs[i]) ? ov.GetIcon(segs[i].E != null ? segs[i].E.Icon : segs[i].Icon) : null;
+                        if (photo != null)
+                        {
+                            // mapas: la foto llena toda la porcion (recortada a su forma), oscurecida para que se lea el nombre
+                            var bb = path.GetBounds();
+                            g.DrawImageUnscaled(SegPhoto(photo, path, n, i), (int)Math.Floor(bb.X), (int)Math.Floor(bb.Y));
+                            using (var b = new SolidBrush(i == hov ? Color.FromArgb(110, 200, 24, 36) : segs[i].Marked ? Color.FromArgb(90, 120, 10, 20) : Color.FromArgb(70, 0, 0, 0)))
+                                g.FillPath(b, path);
+                        }
+                        else if (i == hov)
+                            using (var b = new System.Drawing.Drawing2D.LinearGradientBrush(outer, Color.FromArgb(120, 12, 20), Color.FromArgb(205, 28, 40), 90f)) g.FillPath(b, path);
+                        else if (rc != null)
+                            using (var b = new SolidBrush(Color.FromArgb(segs[i].Marked ? 95 : 60, rc.Value))) g.FillPath(b, path);
+                        else if (segs[i].Marked)
+                            using (var b = new SolidBrush(Color.FromArgb(46, 24, 28))) g.FillPath(b, path);
+                        else if (segs[i].E == null && segs[i].Icon != null && segs[i].Group == 1)
+                            using (var b = new SolidBrush(Color.FromArgb(38, 30, 34))) g.FillPath(b, path); // categorias: un poco distintas de los perks
+                        if (rc != null)
+                            using (var p = new Pen(rc.Value, 7f)) g.DrawArc(p, c - R + 4, c - R + 4, 2 * R - 8, 2 * R - 8, a0 + 0.8f, per - 1.6f);
+                        if (rc != null && segs[i].E.K == Kind.Perk)
+                        {
+                            double ma = (a0 + per / 2) * Math.PI / 180;
+                            string tl = PerkTier(segs[i].E);
+                            var tf = Dbd.Head(11f);
+                            var ts = TextRenderer.MeasureText(tl, tf);
+                            float tx = c + (float)(Math.Cos(ma) * (R - 20)), ty = c + (float)(Math.Sin(ma) * (R - 20));
+                            TextRenderer.DrawText(g, tl, tf, new Point((int)(tx - ts.Width / 2f), (int)(ty - ts.Height / 2f)), rc.Value, TextFormatFlags.NoPrefix);
+                        }
+                        using (var p = new Pen(Color.FromArgb(70, 66, 70), 1.2f)) g.DrawPath(p, path);
+                    }
+                    // contenido en el medio de la seccion
+                    double mid = (a0 + per / 2) * Math.PI / 180, rm = (R + Rin) / 2.0 + (n > 12 ? 18 : 0);
+                    float x = c + (float)(Math.Cos(mid) * rm), y = c + (float)(Math.Sin(mid) * rm);
+                    var s = segs[i];
+                    Image icon = s.E != null ? ov.GetIcon(s.E.Icon) : s.Icon != null ? ov.GetIcon(s.Icon) : null;
+                    Color fg = i == hov ? Color.White : Color.FromArgb(222, 216, 210);
+                    if (icon != null && IsPhoto(s))
+                    {
+                        // nombre sobre la foto, con sombra
+                        string nm = s.E != null ? ov.DName(s.E) : s.Big;
+                        var nf = Dbd.Head(n > 12 ? 10f : 12f);
+                        int tw = n > 12 ? 92 : 130;
+                        var tr = new Rectangle((int)(x - tw / 2f), (int)(y - 22), tw, 44);
+                        var tff = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix;
+                        foreach (var o in new[] { new Point(1, 1), new Point(-1, 1), new Point(1, -1), new Point(-1, -1), new Point(0, 2) })
+                            TextRenderer.DrawText(g, nm, nf, new Rectangle(tr.X + o.X, tr.Y + o.Y, tr.Width, tr.Height), Color.Black, tff);
+                        TextRenderer.DrawText(g, nm, nf, tr, Color.White, tff);
+                    }
+                    else if (s.E == null && (icon != null || s.Glyph != null))
+                    {
+                        // primera rueda: icono (o simbolo) grande y el nombre abajo; con muchas secciones, chico y sin nombre
+                        if (icon != null && n > 12 && Cur.Title == L("REINO", "REALM"))
+                        {
+                            // reinos: foto y el nombre chico abajo (son muchos para el nombre grande)
+                            Fit(g, icon, x, y - 10, 48);
+                            TextRenderer.DrawText(g, s.Big, Dbd.Cond(8.5f), new Rectangle((int)x - 46, (int)y + 10, 92, 28), fg,
+                                                  TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+                        }
+                        else if (icon != null && n > 12) Fit(g, icon, x, y, 48);
+                        else if (n > 12)
+                        {
+                            // simbolo con muchas secciones (ej. "Un mapa", "poco usados"): mas chico, y el texto se parte para entrar
+                            using (var gf = new Font("Segoe UI Symbol", 18f))
+                            {
+                                var gs = TextRenderer.MeasureText(s.Glyph, gf);
+                                TextRenderer.DrawText(g, s.Glyph, gf, new Point((int)(x - gs.Width / 2f), (int)(y - 14 - gs.Height / 2f)), fg, TextFormatFlags.NoPrefix);
+                            }
+                            TextRenderer.DrawText(g, s.Big, Dbd.Head(10f), new Rectangle((int)x - 44, (int)y, 88, 34), fg,
+                                                  TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+                        }
+                        else
+                        {
+                            if (icon != null) Fit(g, icon, x, y - 10, 76);
+                            else
+                                using (var gf = new Font("Segoe UI Symbol", 30f))
+                                {
+                                    var gs = TextRenderer.MeasureText(s.Glyph, gf);
+                                    TextRenderer.DrawText(g, s.Glyph, gf, new Point((int)(x - gs.Width / 2f), (int)(y - 12 - gs.Height / 2f)), fg, TextFormatFlags.NoPrefix);
+                                }
+                            var lf = Dbd.Head(13f);
+                            var ls = TextRenderer.MeasureText(s.Big, lf);
+                            TextRenderer.DrawText(g, s.Big, lf, new Point((int)(x - ls.Width / 2f), (int)(y + 30)), fg, TextFormatFlags.NoPrefix);
+                        }
+                    }
+                    else if (s.E != null)
+                    {
+                        // icono grande y el nombre abajo (sin icono, como los killers: solo el nombre)
+                        int sz = n > 16 ? 56 : n > 12 ? 58 : 80, tw = n > 12 ? 84 : 118;
+                        // muchos (los addons de un killer): solo iconos; el nombre sale al centro al pasar el mouse
+                        if (icon != null && n > 16) { Fit(g, icon, x, y, sz); goto drawn; }
+                        if (icon != null) Fit(g, icon, x, y - 10, sz);
+                        var nr = icon != null ? new Rectangle((int)(x - tw / 2f), (int)(y + sz / 2f - 16), tw, 30) : new Rectangle((int)(x - tw / 2f), (int)(y - 26), tw, 52);
+                        TextRenderer.DrawText(g, ov.DName(s.E), icon != null ? Dbd.Cond(n > 12 ? 7.5f : 8.5f) : Dbd.Head(n > 12 ? 10f : 12f), nr, fg,
+                                              TextFormatFlags.HorizontalCenter | (icon != null ? TextFormatFlags.Top : TextFormatFlags.VerticalCenter) | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+                        drawn: ;
+                    }
+                    else if (s.Big != null)
+                    {
+                        var f = Dbd.Head(s.Big.Length <= 2 ? (n > 18 ? 18f : 22f) : 15f);
+                        var tsz = TextRenderer.MeasureText(s.Big, f);
+                        TextRenderer.DrawText(g, s.Big, f, new Point((int)(x - tsz.Width / 2f), (int)(y - tsz.Height / 2f)), fg, TextFormatFlags.NoPrefix);
+                        if (s.Small != null)
+                        {
+                            var fs = Dbd.Cond(8f);
+                            var ssz = TextRenderer.MeasureText(s.Small, fs);
+                            TextRenderer.DrawText(g, s.Small, fs, new Point((int)(x - ssz.Width / 2f), (int)(y + tsz.Height / 2f - 2)), Color.FromArgb(150, 140, 138), TextFormatFlags.NoPrefix);
+                        }
+                    }
+                    if (s.Marked)
+                        using (var b = new SolidBrush(Color.FromArgb(214, 32, 44)))
+                            g.FillPolygon(b, Dbd.Diamond(x + (n > 12 ? 20 : 26), y - (n > 12 ? 20 : 26), 5));
+            }
+
+            void PaintWheel(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.Clear(Key);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                float c = D / 2f;
+                var segs = Cur.Segs;
+                int n = Math.Max(1, segs.Count);
+                float per = 360f / n;
+                var outer = new RectangleF(c - R, c - R, 2 * R, 2 * R);
+                var inner = new RectangleF(c - Rin, c - Rin, 2 * Rin, 2 * Rin);
+                // fondo de la rueda
+                ShowTiers = ov.cfg.Get("RuedaTiers", "si") != "no";
+                // base del nivel (porciones sin marcar): se dibuja una vez; al mover el mouse solo se rehace la porcion marcada
+                string bkey = stack.Count + "|" + Cur.GetHashCode() + "|" + ShowTiers;
+                if (baseBmp == null || baseKey != bkey)
+                {
+                    if (baseBmp == null) baseBmp = new Bitmap(D, D);
+                    using (var bg = Graphics.FromImage(baseBmp))
+                    {
+                        bg.Clear(Key);
+                        bg.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                        bg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                        using (var b = new SolidBrush(Color.FromArgb(22, 20, 22))) bg.FillEllipse(b, outer);
+                        for (int i = 0; i < segs.Count; i++) DrawSeg(bg, i, -1, segs, n, per, c, outer, inner);
+                        DrawRim(bg, segs, per, c, outer);
+                    }
+                    baseKey = bkey;
+                }
+                g.DrawImageUnscaled(baseBmp, 0, 0);
+                if (hover >= 0 && hover < segs.Count) { DrawSeg(g, hover, hover, segs, n, per, c, outer, inner); DrawRim(g, segs, per, c, outer); }
+                // centro: lo que esta bajo el mouse (o el titulo) y como volver
+                using (var b = new SolidBrush(hover == -2 ? Color.FromArgb(40, 30, 32) : Color.FromArgb(12, 11, 12))) g.FillEllipse(b, inner);
+                using (var p = new Pen(Color.FromArgb(90, 84, 88), 2f)) g.DrawEllipse(p, inner);
+                string label = hover >= 0 && hover < segs.Count ? segs[hover].Label : Cur.Title;
+                var lr = new Rectangle((int)(c - Rin + 10), (int)(c - 34), 2 * Rin - 20, 52);
+                TextRenderer.DrawText(g, label, Dbd.Head(12f), lr, Color.FromArgb(235, 230, 225), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+                // debajo de la rueda: que hace (por ahora, las ofrendas)
+                DescEsNow = ov.DescEs;
+                StatusMode = ov.cfg.Get("EstadosRueda", "ambos");
+                string brief = hover >= 0 && hover < segs.Count && ov.cfg.Get("RuedaDescripcion", "si") != "no" ? BriefOf(segs[hover].E) : null;
+                if (brief != null)
+                {
+                    // los numeros ("+20 %", "(10 s)", "6 m") resaltados: se leen de un vistazo
+                    var f = Dbd.Cond(12f);
+                    var fb = Dbd.Head(12.5f);
+                    const TextFormatFlags tf = TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+                    brief = Iconize(brief);
+                    var words = Regex.Matches(brief, @"\(?\u0001\w+\u0001\S*|\(?[+−]?\d[\d.,]*(?:\s?(?:%|m/s|m|s|grados|degrees)(?!\p{L}))?\)?[.,;]?|\S+").Cast<Match>().Select(mm => mm.Value).ToList();
+                    int maxW = D - 72, space = Math.Max(3, TextRenderer.MeasureText(g, "a a", f, Size.Empty, tf).Width - TextRenderer.MeasureText(g, "aa", f, Size.Empty, tf).Width), lineH = f.Height + 2;
+                    var lines = new List<List<Tuple<string, bool, int>>> { new List<Tuple<string, bool, int>>() };
+                    int cw = 0;
+                    foreach (var w in words)
+                    {
+                        bool hi = Regex.IsMatch(w, @"^\(?[+−]?\d");
+                        int ww = TextRenderer.MeasureText(g, w, hi ? fb : f, Size.Empty, tf).Width;
+                        var sm = StatusTok.Match(w);
+                        if (sm.Success)
+                        {
+                            // icono de estado (si todavia no bajo: la palabra)
+                            var ic = ov.GetIcon("FulliconStatusEffects_" + sm.Groups[2].Value + ".png");
+                            string pre = sm.Groups[1].Value, post = sm.Groups[3].Value, word = ic == null || StatusMode == "ambos" ? StatusWord(sm.Groups[2].Value) : "";
+                            ww = TextRenderer.MeasureText(g, pre + word + post, f, Size.Empty, tf).Width + (ic != null ? lineH + 4 : 0);
+                        }
+                        if (cw > 0 && cw + space + ww > maxW) { lines.Add(new List<Tuple<string, bool, int>>()); cw = 0; }
+                        if (cw > 0) cw += space;
+                        lines[lines.Count - 1].Add(Tuple.Create(w, hi, ww));
+                        cw += ww;
+                    }
+                    if (lines.Count > 4) lines = lines.Take(4).ToList();
+                    int widest = lines.Max(l => l.Sum(t => t.Item3) + space * Math.Max(0, l.Count - 1));
+                    int bw = Math.Min(D - 40, widest + 32), bh = lines.Count * lineH + 16;
+                    var box = new Rectangle((D - bw) / 2, D + 4, bw, bh);
+                    using (var b = new SolidBrush(Color.FromArgb(20, 18, 20))) g.FillRectangle(b, box);
+                    using (var p = new Pen(Color.FromArgb(150, 28, 40), 1.5f)) g.DrawRectangle(p, box);
+                    for (int li = 0; li < lines.Count; li++)
+                    {
+                        var l = lines[li];
+                        int lw = l.Sum(t => t.Item3) + space * Math.Max(0, l.Count - 1), x0 = (D - lw) / 2, y0 = box.Y + 8 + li * lineH;
+                        foreach (var t in l)
+                        {
+                            var sm = StatusTok.Match(t.Item1);
+                            if (sm.Success)
+                            {
+                                var ic = ov.GetIcon("FulliconStatusEffects_" + sm.Groups[2].Value + ".png");
+                                int xx = x0;
+                                string pre = sm.Groups[1].Value, post = sm.Groups[3].Value;
+                                if (pre.Length > 0) { TextRenderer.DrawText(g, pre, f, new Point(xx, y0), Color.FromArgb(225, 220, 215), tf); xx += TextRenderer.MeasureText(g, pre, f, Size.Empty, tf).Width; }
+                                if (ic != null) { g.DrawImage(ic, xx, y0 - 2, lineH + 2, lineH + 2); xx += lineH + 4; }
+                                if (ic == null || StatusMode == "ambos") { string word = StatusWord(sm.Groups[2].Value); TextRenderer.DrawText(g, word, f, new Point(xx, y0), Color.FromArgb(225, 220, 215), tf); xx += TextRenderer.MeasureText(g, word, f, Size.Empty, tf).Width; }
+                                if (post.Length > 0) TextRenderer.DrawText(g, post, f, new Point(xx, y0), Color.FromArgb(225, 220, 215), tf);
+                            }
+                            else
+                            TextRenderer.DrawText(g, t.Item1, t.Item2 ? fb : f, new Point(x0, y0 + (t.Item2 ? -1 : 0)), t.Item2 ? Color.FromArgb(255, 196, 92) : Color.FromArgb(225, 220, 215), tf);
+                            x0 += t.Item3 + space;
+                        }
+                    }
+                }
+                string sub = Gesture ? (ClickMode ? L("clic: elegir · derecho: atrás", "click: pick · right: back") : L("empujá: entrar · soltá: elegir", "push: enter · release: pick"))
+                           : stack.Count > 1 ? L("clic aquí o derecho: atrás", "click here or right: back") : L("clic derecho: cerrar", "right-click: close");
+                TextRenderer.DrawText(g, sub, Dbd.Cond(8.5f), new Rectangle((int)(c - Rin + 8), (int)(c + 22), 2 * Rin - 16, 20), Color.FromArgb(140, 130, 128), TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
+            }
+        }
+
         void SetupTray()
         {
             trayRed = TrayIcon(Color.FromArgb(190, 22, 34));
@@ -6111,6 +7606,7 @@ Puerto=8765
             var typeItem = new ToolStripMenuItem(L("Escribir…", "Type…"));
             typeItem.Click += (s, e) => OpenTypeBox();
             menu.Items.Add(typeItem);
+            menu.Items.Add(L("Rueda…", "Wheel…"), null, (s, e) => ToggleWheel());
             menu.Items.Add(L("Borrar lista", "Clear list"), null, (s, e) => ClearWithUndo());
             // lo de siempre de la sala queda a mano; el resto esta en Configuracion > Sala
             var roomMenu = new ToolStripMenuItem(L("Sala compartida", "Shared room"));
@@ -6196,7 +7692,7 @@ Puerto=8765
             bool boxOpen = typeBox != null && typeBox.Visible;
             // un boton del mouse como atajo: Windows no avisa sin escuchar cada movimiento, asi que ahi se mira cada 25 ms
             bool mouseKeys = IsMouseVk(vkType) || IsMouseVk(vkTalk) || IsMouseVk(vkClear) || IsMouseVk(vkHelp) || IsMouseVk(vkNames);
-            bool fast = !watchOk || mouseKeys || typePending || talking || releaseAt >= 0 || clearDown || helpShown || namesDown || (typeKeyDown && !boxOpen);
+            bool fast = !watchOk || mouseKeys || typePending || talking || releaseAt >= 0 || clearDown || helpShown || namesDown || wheelDown || (typeKeyDown && !boxOpen);
             int now = Environment.TickCount, iv;
             if (fast) iv = 25;
             else
@@ -6231,7 +7727,7 @@ Puerto=8765
             }) { IsBackground = true, Name = "teclas" }.Start();
         }
 
-        bool IsOurVk(int v) { return v != 0 && (v == vkType || v == vkTalk || v == vkClear || v == vkHelp || v == vkNames); }
+        bool IsOurVk(int v) { return v != 0 && (v == vkType || v == vkTalk || v == vkClear || v == vkHelp || v == vkNames || v == vkWheel || (v == 0x1B && wheelOpen)); }
 
         IntPtr WatchProc(int nCode, IntPtr wParam, IntPtr lParam)
         {
@@ -6434,6 +7930,28 @@ Puerto=8765
                 bool c = HotKey(vkNames) && (namesDown || ModsMatch(vkNames, namesSh, namesCt, namesAl));
                 if (c && !namesDown) SetNames(!showNames);
                 namesDown = c;
+            }
+            // ESC con la rueda abierta: se cierra (no se bloquea: si estas en el menu del juego, ESC tambien lo cierra)
+            if (wheelOpen && (GetAsyncKeyState(0x1B) & 0x8000) != 0 && wheelWin != null && !wheelWin.IsDisposed) wheelWin.Hide();
+            if (vkWheel != 0)
+            {
+                bool c = HotKey(vkWheel) && (wheelDown || ModsMatch(vkWheel, wheelSh, wheelCt, wheelAl));
+                if (c != wheelDown)
+                {
+                    if (cfg.Get("RuedaModo", "clic").StartsWith("gesto"))
+                    {
+                        if (c)
+                        {
+                            if (wheelWin == null || wheelWin.IsDisposed) wheelWin = new WheelWindow(this);
+                            if (!wheelWin.Visible || !wheelWin.Gesture) wheelWin.Open(true);
+                            wheelWin.ClickMode = cfg.Get("RuedaModo", "clic") == "gestoclic";
+                            wheelWin.Steer(true);
+                        }
+                        else if (wheelWin != null && !wheelWin.IsDisposed && wheelWin.Visible) wheelWin.Steer(false);
+                    }
+                    else if (c) ToggleWheel();
+                }
+                wheelDown = c;
             }
 
             if (feedback.Length > 0 && now - feedbackUntil >= 0) { feedback = ""; Relayout(); }
@@ -6951,6 +8469,10 @@ Puerto=8765
                 }
                 if (clip != null) { g.Clip = oldClip; clip.Dispose(); }
             }
+            else if (e.Rarity == "mapa")
+                // ofrenda de mapa (cualquiera): sin dibujo propio, dice MAPA
+                using (var f = new Font("Bahnschrift SemiBold SemiConden", Math.Max(7f, r.Height * 0.3f), GraphicsUnit.Pixel))
+                    TextRenderer.DrawText(g, L("MAPA", "MAP"), f, r, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             if (doubt)
             {
                 // "?" amarillo en la esquina
@@ -6998,6 +8520,21 @@ Puerto=8765
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             Lang.FirstRun = !File.Exists(Path.Combine(dir, "config.ini")); // antes de que Cfg.Load lo cree
             try { Lang.Init(Cfg.Load(Path.Combine(dir, "config.ini")).Get("IdiomaApp", "auto")); } catch { }
+            // un error en la ventana: queda anotado en logsrrores.log (con el detalle) y la app sigue, sin el cartel de .NET
+            var seenErr = new HashSet<string>();
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (s, e) =>
+            {
+                try
+                {
+                    string key = e.Exception.GetType().Name + e.Exception.StackTrace;
+                    if (!seenErr.Add(key)) return; // el mismo error al repintar: una vez alcanza
+                    string folder = Path.Combine(dir, "logs");
+                    Directory.CreateDirectory(folder);
+                    File.AppendAllText(Path.Combine(folder, "errores.log"), "---- " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " v" + Updater.AppVersion + "\r\n" + e.Exception + "\r\n\r\n", Encoding.UTF8);
+                }
+                catch { }
+            };
             ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
             ServicePointManager.DefaultConnectionLimit = 16; // la sala tiene una conexion abierta escuchando todo el tiempo
             if (args.Length >= 3 && args[0] == "--desc")
