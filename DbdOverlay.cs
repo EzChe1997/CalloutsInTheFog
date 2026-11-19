@@ -475,30 +475,47 @@ Puerto=8765
                 return o.ToArray();
             }
         }
-        static List<string> HensMapList(string dir)
+        // nombres que la app usaba antes de que hens rehiciera la pagina (noviembre 2026): se mantienen como nombre principal
+        // para que el mapa compartido en la sala se entienda con las versiones anteriores de la app
+        static readonly Dictionary<string, string> HensOldNames = new Dictionary<string, string> {
+            { "rancidabattoir", "Rancid Abbatoir" }, { "theshatteredsquare", "Shattered Square" }, { "fathercampbellschapel", "Father Campbells Chapel" },
+            { "freddyfazbearspizza", "Freddy Fazbears Pizza" }, { "ironworksofmisery", "Ironworks Of Misery" }, { "ironworksofmiseryii", "Ironworks Of Misery II" },
+            { "rpdeastwing", "Police Station East Wing" }, { "rpdwestwing", "Police Station West Wing" },
+            { "badhampreschool", "Preschool I|Preschool 1" }, { "badhampreschoolii", "Preschool II|Preschool 2" }, { "badhampreschooliii", "Preschool III|Preschool 3" },
+            { "badhampreschooliv", "Preschool IIIV|Preschool IV|Preschool 4" }, { "badhampreschoolv", "Preschool V|Preschool 5" },
+            { "tobalanding", "Toba Landing|Toba|TB" }, { "nostromowreckage", "Nostromo Wreckage|Nostromo|NB" } };
+
+        // la pagina hens333.com/callouts/ (hecha con Astro) lista cada mapa por reino con sus imagenes en /_astro/, con un codigo
+        // en el nombre que cambia cuando hens actualiza la web. Se usa la version "classic" (la de siempre, con reloj).
+        // force: releer la pagina aunque la lista guardada sea nueva (la imagen guardada ya no existe).
+        internal static List<string> HensMapList(string dir, bool force = false)
         {
             string path = Path.Combine(dir, "hens_mapas.txt");
-            bool stale = !File.Exists(path) || (remoteVer != null ? Changed("maps") : (DateTime.Now - File.GetLastWriteTime(path)).TotalDays > 7);
+            bool stale = force || !File.Exists(path) || (remoteVer != null ? Changed("maps") : (DateTime.Now - File.GetLastWriteTime(path)).TotalDays > 7);
+            // lista del formato viejo (imagenes en img/dbd/callouts/, que ya no existen)
+            if (!stale) try { stale = File.ReadAllLines(path, Encoding.UTF8).Any(l => { var f = l.Split('\t'); return f.Length >= 2 && !f[1].StartsWith("/_astro/"); }); } catch { stale = true; }
             if (stale)
             {
                 try
                 {
-                    string html = Encoding.UTF8.GetString(HttpBytes(HensBase + "callouts"));
-                    var byImage = new Dictionary<string, string[]>(); // imagen -> { nombres, reino }
-                    var order = new List<string>();
-                    foreach (Match jm in Regex.Matches(html, @"_app/immutable/nodes/[A-Za-z0-9_.-]+\.js"))
+                    string html = Encoding.UTF8.GetString(HttpBytes(HensBase + "callouts/"));
+                    var lines = new List<string>();
+                    foreach (var sec in Regex.Split(html, @"<section class=""realm""").Skip(1))
                     {
-                        string js = Encoding.UTF8.GetString(HttpBytes(HensBase + jm.Value));
-                        foreach (Match m in Regex.Matches(js, @"\{(?:realm:""([^""]*)"",)?names:\[([^\]]*)\],image:""([^""]+)""\}"))
+                        var rm = Regex.Match(sec, @"class=""realm-name[^""]*""[^>]*>(?:<span[^>]*></span>)?([^<]+)");
+                        string realm = rm.Success ? WebUtility.HtmlDecode(rm.Groups[1].Value).Trim() : "";
+                        foreach (var li in Regex.Split(sec, @"<li data-map=").Skip(1))
                         {
-                            string img = m.Groups[3].Value, realm = m.Groups[1].Value;
-                            var names = Regex.Matches(m.Groups[2].Value, @"""([^""]*)""").Cast<Match>().Select(x => x.Groups[1].Value).ToArray();
-                            string[] cur;
-                            if (!byImage.TryGetValue(img, out cur)) { byImage[img] = new[] { string.Join("|", names), realm }; order.Add(img); }
-                            else if (cur[1].Length == 0 && realm.Length > 0) cur[1] = realm;
+                            var im = Regex.Match(li, @"<img src=""(/_astro/[^""]+)""[^>]*?data-style=""classic""");
+                            if (!im.Success) im = Regex.Match(li, @"<img src=""(/_astro/[^""]+)""");
+                            var nm = Regex.Match(li, @"class=""map-name""[^>]*>([^<]+)");
+                            if (!im.Success || !nm.Success) continue;
+                            string name = WebUtility.HtmlDecode(nm.Groups[1].Value).Trim(), old;
+                            string names = HensOldNames.TryGetValue(Overlay.Bare(name), out old) ? old + "|" + name : name;
+                            lines.Add(names + "\t" + im.Groups[1].Value + "\t" + realm);
                         }
                     }
-                    if (order.Count > 0) File.WriteAllLines(path, order.Select(i => byImage[i][0] + "\t" + i + "\t" + byImage[i][1]), Encoding.UTF8);
+                    if (lines.Count > 0) File.WriteAllLines(path, lines, Encoding.UTF8);
                 }
                 catch { }
             }
@@ -2704,7 +2721,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 44;
+        public const int AppVersion = 45;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/CalloutsInTheFog/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3204,7 +3221,7 @@ Puerto=8765
                         TextRenderer.DrawText(g, txt, f, sr, hoverText != null ? Color.FromArgb(235, 235, 240) : lastText != null ? Color.FromArgb(255, 150, 150) : Color.FromArgb(150, 150, 165),
                             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
                 }
-                else using (var fs = new Font("Segoe UI", 9f))
+                else if (img == null) using (var fs = new Font("Segoe UI", 9f))
                     TextRenderer.DrawText(g, ov.MapError != null ? L("No pude bajar el plano de ", "Couldn't download the map of ") + title + "\n(" + ov.MapError + ")" : L("cargando ", "loading ") + title + "…", fs, r, Color.FromArgb(160, 160, 175), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
                 using (var pen = new Pen(Color.FromArgb(70, 70, 90))) g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
             }
@@ -3214,7 +3231,19 @@ Puerto=8765
         // decodificador) achicada a 900 px de ancho y queda guardada en "mapas".
         readonly Dictionary<string, Image> mapCache = new Dictionary<string, Image>();
         readonly HashSet<string> mapPending = new HashSet<string>();
+        readonly Dictionary<string, DateTime> mapFailed = new Dictionary<string, DateTime>();
         public string MapError;
+        static string HensMapUrl(string file)
+        {
+            if (file.StartsWith("/")) return Catalog.HensBase + file.Substring(1);
+            return Catalog.HensBase + "img/dbd/callouts/" + string.Join("/", file.Split('/').Select(Uri.EscapeDataString));
+        }
+        // WebP (RIFF), PNG, GIF o JPG; cuando la imagen no existe la web devuelve una pagina HTML
+        static bool IsImageData(byte[] d)
+        {
+            if (d == null || d.Length < 12) return false;
+            return (d[0] == 'R' && d[1] == 'I' && d[2] == 'F' && d[3] == 'F') || (d[0] == 0x89 && d[1] == 'P') || (d[0] == 'G' && d[1] == 'I' && d[2] == 'F') || (d[0] == 0xFF && d[1] == 0xD8);
+        }
         public Image MapImage(string file)
         {
             Image img;
@@ -3225,17 +3254,33 @@ Puerto=8765
                 try { using (var fs = File.OpenRead(path)) using (var tmp = Image.FromStream(fs)) img = new Bitmap(tmp); mapCache[file] = img; return img; }
                 catch { try { File.Delete(path); } catch { } }
             }
+            // si fallo hace poco no se reintenta en cada repintado (antes se pedia cientos de veces por segundo)
+            DateTime failedAt;
+            if (mapFailed.TryGetValue(file, out failedAt) && (DateTime.Now - failedAt).TotalSeconds < 60) return null;
             if (mapPending.Add(file))
             {
                 MapError = null;
+                // nombre del mapa, por si hay que buscar la imagen nueva en la pagina de hens
+                string mapName = cat.MapFiles.Where(kv => kv.Value.Contains(file)).Select(kv => kv.Key).FirstOrDefault();
                 new Thread(() =>
                 {
-                    string err = null;
+                    string err = null, newFile = null;
                     try
                     {
                         Directory.CreateDirectory(folder);
-                        string url = Catalog.HensBase + "img/dbd/callouts/" + string.Join("/", file.Split('/').Select(Uri.EscapeDataString));
-                        var data = Catalog.HttpBytes(url);
+                        var data = Catalog.HttpBytes(HensMapUrl(file));
+                        if (!IsImageData(data) && mapName != null)
+                        {
+                            // hens actualizo la web y la imagen cambio de nombre: releer la lista y bajar la nueva
+                            var line = Catalog.HensMapList(dir, true).Select(l => l.Split('\t')).FirstOrDefault(f => f.Length >= 3 && f[0].Split('|').Contains(mapName));
+                            if (line != null && line[1] != file)
+                            {
+                                newFile = line[1];
+                                path = Path.Combine(folder, Regex.Replace(newFile, @"[^A-Za-z0-9]+", "_") + ".png");
+                                data = Catalog.HttpBytes(HensMapUrl(newFile));
+                            }
+                        }
+                        if (!IsImageData(data)) throw new Exception(Lang.L("hens333.com no devolvió una imagen", "hens333.com did not return an image"));
                         using (var ms = new MemoryStream(data))
                         {
                             var dec = System.Windows.Media.Imaging.BitmapDecoder.Create(ms, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
@@ -3250,7 +3295,15 @@ Puerto=8765
                     BeginInvoke((Action)(() =>
                     {
                         mapPending.Remove(file);
-                        if (err != null) { MapError = err; DebugEvent("mapa: no pude bajar " + file + " (" + err + ")"); }
+                        if (err != null) { mapFailed[file] = DateTime.Now; MapError = err; DebugEvent("mapa: no pude bajar " + file + " (" + err + ")"); }
+                        else mapFailed.Remove(file);
+                        if (newFile != null)
+                        {
+                            // cambiar la imagen en la lista que ya tiene la ventana del mapa (es la misma lista)
+                            List<string> fl;
+                            if (mapName != null && cat.MapFiles.TryGetValue(mapName, out fl)) for (int i = 0; i < fl.Count; i++) if (fl[i] == file) fl[i] = newFile;
+                            if (gifMapFile == file) gifMapFile = newFile;
+                        }
                         if (mapWin != null && mapWin.Visible) { mapWin.Fit(); mapWin.Invalidate(); }
                     }));
                 }) { IsBackground = true }.Start();

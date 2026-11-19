@@ -1,8 +1,8 @@
 {
-    "version":  44,
-    "notes":  "Builds sugeridas de Hens (opcional, Configuración): al anotar el killer se muestran atenuadas en los lugares libres; botón triangular, Shift+B o la rueda para cambiar o quitarlas. Lista: doble clic confirma una sospecha, mantener apretado quita (con animación). Ctrl+Z deshace (varios pasos). Al escribir: opción de quitar o confirmar lo ya anotado, colores por tier. Tiers de perks actualizados al parche 10.2.2 con colores de rareza. Perks renombrados (Cenobite, Shape, Chucky) se encuentran por los dos nombres. Soporte de gamepad (opcional). Arreglos: el \"?\" ya no cambia la sugerencia elegida; la lista ya no salta al confirmar.",
-    "date":  "2026-11-18 21:07",
+    "version":  45,
+    "notes":  "Arreglado: las imágenes de los mapas no cargaban (hens333.com cambió su web; ahora la app encuentra sola las imágenes nuevas). El cartel de \u0027cargando\u0027 ya no queda encima del mapa.",
+    "date":  "2026-11-18 22:51",
     "files":  {
-                  "DbdOverlay.exe":  "d2b6896b7f7ef4be573bca57dca085f3448e1249461d68552164843d6e9c5853"
+                  "DbdOverlay.exe":  "efb747dc4c2b1d94632ca08e43d5a5f328a273364886403bf85d53499ab5435a"
               }
 }
