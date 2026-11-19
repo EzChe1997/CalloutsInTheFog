@@ -1,8 +1,8 @@
 {
-    "version":  43,
-    "notes":  "Rueda para anotar con el mouse (Configuración → Rueda): perks por lo que hacen con los más usados primero, descripciones y colores por tier; killers por tipo de poder con retratos; mapas por reino con fotos. Se abre con una tecla y se elige con clic. Arreglado: el mapa no se veía con la opacidad en 100 %.",
-    "date":  "2026-11-17 22:33",
+    "version":  44,
+    "notes":  "Builds sugeridas de Hens (opcional, Configuración): al anotar el killer se muestran atenuadas en los lugares libres; botón triangular, Shift+B o la rueda para cambiar o quitarlas. Lista: doble clic confirma una sospecha, mantener apretado quita (con animación). Ctrl+Z deshace (varios pasos). Al escribir: opción de quitar o confirmar lo ya anotado, colores por tier. Tiers de perks actualizados al parche 10.2.2 con colores de rareza. Perks renombrados (Cenobite, Shape, Chucky) se encuentran por los dos nombres. Soporte de gamepad (opcional). Arreglos: el \"?\" ya no cambia la sugerencia elegida; la lista ya no salta al confirmar.",
+    "date":  "2026-11-18 21:07",
     "files":  {
-                  "DbdOverlay.exe":  "7143d66a074d0565bd1efd5d24dbeeddf8f141ef168a7a9b5ca1547d041f0b36"
+                  "DbdOverlay.exe":  "d2b6896b7f7ef4be573bca57dca085f3448e1249461d68552164843d6e9c5853"
               }
 }

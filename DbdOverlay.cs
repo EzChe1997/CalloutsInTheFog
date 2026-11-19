@@ -355,6 +355,14 @@ Puerto=8765
             new[]{"black ward","black word","ward negro"}
         };
 
+        // perks de licencias que se fueron: quien no tiene el capitulo los ve con otro nombre (perk general). { viejo, nuevo }
+        public static readonly string[][] Renames = {
+            new[] { "Scourge Hook: Gift of Pain", "Scourge Hook: Weeping Wounds" }, new[] { "Hex: Plaything", "Hex: Fortune's Fool" },
+            new[] { "Deadlock", "No Holds Barred" },                                                             // Cenobite, parche 9.0.0
+            new[] { "Play With Your Food", "See How They Run" }, new[] { "Save the Best for Last", "Keep Them Waiting" },
+            new[] { "Dying Light", "Cull the Weak" },                                                            // Shape, parche 9.4.0
+            new[] { "Hex: Two Can Play", "Hex: Eye for an Eye" }, new[] { "Friends 'til the End", "One Track Mind" },
+            new[] { "Batteries Included", "Gaining Steam" } };                                                   // Chucky, anunciado para el 24/11/2026
         static readonly string[][] PerkAliases = {
             new[]{"barbecue","bbq","barbacoa"}, new[]{"pop goes the weasel","pop","pgtw"},
             new[]{"no one escapes death","noed","no ed"}, new[]{"dead mans switch","dms"},
@@ -455,6 +463,18 @@ Puerto=8765
         // lista de mapas de hens333.com/callouts: la pagina guarda la lista en sus archivos .js
         // ({realm:"…",names:["…"],image:"Carpeta/Mapa.webp"}). Se guarda en hens_mapas.txt: "nombres|…<tab>imagen<tab>reino".
         public const string HensBase = "https://hens333.com/";
+        public static byte[] WebpToPng(byte[] webp)
+        {
+            using (var ms = new MemoryStream(webp))
+            using (var o = new MemoryStream())
+            {
+                var dec = System.Windows.Media.Imaging.BitmapDecoder.Create(ms, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(dec.Frames[0]));
+                enc.Save(o);
+                return o.ToArray();
+            }
+        }
         static List<string> HensMapList(string dir)
         {
             string path = Path.Combine(dir, "hens_mapas.txt");
@@ -674,6 +694,13 @@ Puerto=8765
                 e.AddKey(name);
                 int ci = name.IndexOf(':');
                 if (ci > 0) e.AddKey(name.Substring(ci + 1));
+                foreach (var rn in Renames)
+                    if (HensBuilds.Loose(rn[0]) == HensBuilds.Loose(name))
+                    {
+                        e.AddKey(rn[1]);
+                        int rc = rn[1].IndexOf(':');
+                        if (rc > 0) e.AddKey(rn[1].Substring(rc + 1));
+                    }
                 string n = Txt.Norm(name);
                 foreach (var al in PerkAliases)
                     if (n.Contains(al[0])) for (int i = 1; i < al.Length; i++) e.AddKey(al[i]);
@@ -1103,7 +1130,7 @@ Puerto=8765
             string r = AddOne(e);
             doubtMode = false;
             Prune();
-            undoSnap = before; undoAdded = new List<Entry> { e }; undoAlias = null;
+            PushUndo(before, new List<Entry> { e }, null);
             return r;
         }
 
@@ -1128,7 +1155,7 @@ Puerto=8765
             if (Offering == e) { Offering = null; ok = true; }
             Doubt.Remove(e);
             if (!ok) return L("no estaba: ", "nothing to remove: ") + e.Name;
-            undoSnap = before; undoAdded = null; undoAlias = null;
+            PushUndo(before, null, null);
             return "- " + e.Name;
         }
 
@@ -1143,7 +1170,7 @@ Puerto=8765
             else list[list.IndexOf(old)] = neu;
             Doubt.Remove(old);
             if (doubt) Doubt.Add(neu); else Doubt.Remove(neu);
-            undoSnap = before; undoAdded = new List<Entry> { neu }; undoAlias = null;
+            PushUndo(before, new List<Entry> { neu }, null);
             return old.Name + " → " + neu.Name + (doubt ? " (?)" : "");
         }
 
@@ -1152,7 +1179,7 @@ Puerto=8765
         {
             var before = (Snap)Snapshot();
             if (!Current().Contains(e)) return L("no estaba: ", "nothing to remove: ") + e.Name;
-            undoSnap = before; undoAdded = null; undoAlias = null;
+            PushUndo(before, null, null);
             if (Doubt.Remove(e)) return "✓ " + e.Name + L(" confirmado", " confirmed");
             Doubt.Add(e);
             return e.Name + L(" ahora es sospecha (?)", " is now a guess (?)");
@@ -1308,6 +1335,20 @@ Puerto=8765
 
         // ---- "no, borra eso": deshace el ultimo cambio y no repite la misma eleccion
         object undoSnap; List<Entry> undoAdded = new List<Entry>(); string undoAlias;
+        // pasos anteriores para deshacer de a uno (hasta 20; cada uno es una copia chica de lo anotado)
+        readonly List<Tuple<object, List<Entry>, string>> undoHist = new List<Tuple<object, List<Entry>, string>>();
+        void PushUndo(object before, List<Entry> added, string alias)
+        {
+            if (undoSnap != null) { undoHist.Add(Tuple.Create(undoSnap, undoAdded, undoAlias)); if (undoHist.Count > 20) undoHist.RemoveAt(0); }
+            undoSnap = before; undoAdded = added; undoAlias = alias;
+        }
+        void PopUndo()
+        {
+            if (undoHist.Count == 0) { undoSnap = null; undoAdded = new List<Entry>(); undoAlias = null; return; }
+            var t = undoHist[undoHist.Count - 1];
+            undoHist.RemoveAt(undoHist.Count - 1);
+            undoSnap = t.Item1; undoAdded = t.Item2; undoAlias = t.Item3;
+        }
         public bool CanUndo { get { return undoSnap != null; } }
         HashSet<Entry> exclude = new HashSet<Entry>();
         string learnedAlias; // apodo aprendido en el ultimo Apply (para olvidarlo si se deshace)
@@ -1384,7 +1425,7 @@ Puerto=8765
                 if (undoAdded == null) undoAdded = new List<Entry>();
                 exclude = new HashSet<Entry>(undoAdded.Where(x => x.Rarity != "nota"));
                 string what = undoAdded.Count > 0 ? string.Join(", ", undoAdded.Select(x => x.Name)) : L("el último cambio", "the last change");
-                undoSnap = null; undoAdded = new List<Entry>(); undoAlias = null;
+                PopUndo();
                 return L("deshice: ", "undone: ") + what + (exclude.Count > 0 ? L(" · repetilo, no lo voy a elegir de nuevo", " · say it again, I won't pick that one") : "");
             }
 
@@ -1405,7 +1446,7 @@ Puerto=8765
                         || !Doubt.SequenceEqual(before.Doubt) || Offering != before.Offering;
             if (changed || learnedAlias != null)
             {
-                undoSnap = before; undoAdded = added; undoAlias = learnedAlias;
+                PushUndo(before, added, learnedAlias);
             }
             return res;
         }
@@ -2540,11 +2581,130 @@ Puerto=8765
         }
     }
 
+    // ------------------------------------------------------------ builds de hens333.com/killerbuilds
+    // Solo se baja la pagina del killer anotado, y como mucho una vez cada 3 dias (nada en segundo plano ni periodico).
+    // Se guarda en datos/hens_builds.txt: "killer<tab>fecha<tab>parche<tab>perk,perk,…<tab>addon,…" (una linea por build).
+    static class HensBuilds
+    {
+        static readonly object lk = new object();
+        static string dir;
+        static Dictionary<string, List<string[]>> cache;
+        static HashSet<string> used = new HashSet<string>();             // perks que aparecen en alguna build guardada
+        static readonly HashSet<string> busy = new HashSet<string>();
+        static readonly Dictionary<string, DateTime> failed = new Dictionary<string, DateTime>();
+        public static string Slug(string name)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in name.ToLowerInvariant().Replace("'", "").Replace("’", "").Normalize(NormalizationForm.FormD))
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark) sb.Append(c);
+            return Regex.Replace(sb.ToString(), "[^a-z0-9]+", "-").Trim('-');
+        }
+        // perks que la pagina de Hens nombra y que todavia no estan en los datos de la app (capitulo nuevo): slug -> { nombre, dueño }
+        static Dictionary<string, string[]> perkInfo;
+        public static List<string[]> PerkInfo() { lock (lk) return perkInfo == null ? new List<string[]>() : perkInfo.Select(kv => new[] { kv.Key, kv.Value[0], kv.Value[1] }).ToList(); }
+        // "scourge-hook-pain-resonance" = "Scourge Hook: Pain Resonance", "barbecue-and-chilli" = "Barbecue & Chili"
+        public static string Loose(string s)
+        {
+            s = Regex.Replace(s.ToLowerInvariant(), @"^(hex|scourge[- ]hook|boon|invocation)[-:]\s*", "");
+            var sb = new StringBuilder();
+            foreach (char c in s.Normalize(NormalizationForm.FormD)) if (c >= 'a' && c <= 'z') sb.Append(c);
+            return Regex.Replace(sb.ToString().Replace("and", ""), @"(.)\1+", "$1");
+        }
+        public static void Init(string d)
+        {
+            lock (lk)
+            {
+                if (cache != null) return;
+                dir = d;
+                cache = new Dictionary<string, List<string[]>>();
+                try
+                {
+                    string path = Path.Combine(dir, "hens_builds.txt");
+                    if (File.Exists(path))
+                        foreach (var l in File.ReadAllLines(path, Encoding.UTF8))
+                        {
+                            var f = l.Split('\t'); if (f.Length < 5) continue;
+                            List<string[]> li; if (!cache.TryGetValue(f[0], out li)) cache[f[0]] = li = new List<string[]>();
+                            li.Add(f);
+                        }
+                }
+                catch { }
+                perkInfo = new Dictionary<string, string[]>();
+                try
+                {
+                    string pp = Path.Combine(dir, "hens_perks.txt");
+                    if (File.Exists(pp))
+                        foreach (var l in File.ReadAllLines(pp, Encoding.UTF8)) { var f = l.Split('\t'); if (f.Length >= 3) perkInfo[f[0]] = new[] { f[1], f[2] }; }
+                }
+                catch { }
+                RebuildUsed();
+            }
+        }
+        static void RebuildUsed()
+        {
+            used = new HashSet<string>(cache.Values.SelectMany(v => v).SelectMany(f => f[3].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)).Select(Loose));
+        }
+        public static bool IsUsed(string perkName) { return used.Contains(Loose(perkName)); }
+        // lo guardado para ese killer (null si nada). Si esta viejo o falta, lo baja en segundo plano y despues llama a done.
+        public static List<string[]> Get(string slug, Action done)
+        {
+            List<string[]> li;
+            lock (lk)
+            {
+                if (cache == null) return null;
+                cache.TryGetValue(slug, out li);
+                long t; DateTime ft;
+                bool fresh = li != null && li.Count > 0 && long.TryParse(li[0][1], out t) && (DateTime.UtcNow - new DateTime(t, DateTimeKind.Utc)).TotalDays < 3;
+                bool wait = failed.TryGetValue(slug, out ft) && (DateTime.UtcNow - ft).TotalMinutes < 10; // sin internet: no reintentar enseguida
+                if (fresh || wait || busy.Contains(slug)) return li;
+                busy.Add(slug);
+            }
+            new Thread(() =>
+            {
+                bool ok = false;
+                try
+                {
+                    string html = Encoding.UTF8.GetString(Catalog.HttpBytes(Catalog.HensBase + "killerbuilds/" + slug + "/"));
+                    var pm = Regex.Match(html, @"patch\s+([0-9][0-9a-z.]*)");
+                    string now = DateTime.UtcNow.Ticks.ToString(), patch = pm.Success ? pm.Groups[1].Value : "";
+                    var rows = new List<string[]>();
+                    foreach (Match m in Regex.Matches(html, @"b/new#r=k&(?:amp;)?k=([a-z0-9-]+)&(?:amp;)?p=([a-z0-9,-]*)&(?:amp;)?a=([a-z0-9,-]*)"))
+                        if (m.Groups[1].Value == slug && !rows.Any(x => x[3] == m.Groups[2].Value))
+                            rows.Add(new[] { slug, now, patch, m.Groups[2].Value, m.Groups[3].Value });
+                    if (rows.Count == 0) rows.Add(new[] { slug, now, patch, "", "" }); // todavia sin builds ("coming soon")
+                    // nombre y dueño de cada perk (para los que la app todavia no conoce)
+                    var info = new Dictionary<string, string[]>();
+                    foreach (var chunk in html.Split(new[] { "<details class=\"spec\"" }, StringSplitOptions.None).Skip(1))
+                    {
+                        var pm2 = Regex.Match(chunk, @"/wiki/perks/([a-z0-9-]+)\.webp");
+                        var nm = Regex.Match(chunk, @"class=""spec-name""[^>]*>([^<]+)<");
+                        var ow = Regex.Match(chunk, @"class=""spec-owner[^""]*""[^>]*>([^<]*)<");
+                        if (pm2.Success && nm.Success)
+                            info[pm2.Groups[1].Value] = new[] { WebUtility.HtmlDecode(nm.Groups[1].Value).Trim(), ow.Success ? WebUtility.HtmlDecode(ow.Groups[1].Value).Trim() : "" };
+                    }
+                    lock (lk)
+                    {
+                        cache[slug] = rows;
+                        foreach (var kv in info) perkInfo[kv.Key] = kv.Value;
+                        File.WriteAllLines(Path.Combine(dir, "hens_perks.txt"), perkInfo.Select(kv => kv.Key + "\t" + kv.Value[0] + "\t" + kv.Value[1]), Encoding.UTF8);
+                        RebuildUsed();
+                        File.WriteAllLines(Path.Combine(dir, "hens_builds.txt"), cache.Values.SelectMany(v => v).Select(f => string.Join("\t", f)), Encoding.UTF8);
+                    }
+                    ok = true;
+                }
+                catch { lock (lk) failed[slug] = DateTime.UtcNow; }
+                finally { lock (lk) busy.Remove(slug); }
+                if (ok && done != null) done();
+            }) { IsBackground = true }.Start();
+            return li;
+        }
+    }
+
     // ------------------------------------------------------------ actualizaciones desde GitHub (firmadas)
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 43;
+        public const int AppVersion = 44;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/CalloutsInTheFog/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -3123,7 +3283,9 @@ Puerto=8765
                     try
                     {
                         Directory.CreateDirectory(folder);
-                        var data = Catalog.HttpBytes("https://deadbydaylight.wiki.gg/images/" + Uri.EscapeDataString(file));
+                        var data = file.StartsWith("hens-")
+                            ? Catalog.WebpToPng(Catalog.HttpBytes(Catalog.HensBase + "wiki/perks/" + file.Substring(5, file.Length - 9) + ".webp"))
+                            : Catalog.HttpBytes("https://deadbydaylight.wiki.gg/images/" + Uri.EscapeDataString(file));
                         File.WriteAllBytes(path, data);
                         BeginInvoke((Action)(() => { iconPending.Remove(file); Relayout(); if (wheelWin != null && !wheelWin.IsDisposed && wheelWin.Visible) wheelWin.RefreshIcons(); }));
                     }
@@ -3181,6 +3343,9 @@ Puerto=8765
             ParseCombo(cfg.Get("TeclaNombres", "Shift+M"), out vkNames, out namesSh, out namesCt, out namesAl, out tn);
             ParseCombo(cfg.Get("TeclaAyuda", "Shift+H"), out vkHelp, out helpSh, out helpCt, out helpAl, out tn);
             ParseCombo(cfg.Get("TeclaRueda", "Shift+R"), out vkWheel, out wheelSh, out wheelCt, out wheelAl, out tn);
+            ParseCombo(cfg.Get("TeclaDeshacer", "Ctrl+Z"), out vkUndo, out undoSh, out undoCt, out undoAl, out tn);
+            ParseCombo(cfg.Get("TeclaBuild", "Shift+B"), out vkBuild, out buildSh, out buildCt, out buildAl, out tn);
+            UpdatePad();
             showNames = Regex.IsMatch(cfg.Get("Nombres", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase);
             Lang.Init(cfg.Get("IdiomaApp", "auto"));
             port = cfg.GetInt("Puerto", 8765);
@@ -3551,6 +3716,98 @@ Puerto=8765
 
         HoverTip tip;
         Entry hoverE;
+        // ---- clics en la lista (con el cursor libre): doble clic confirma una sospecha; mantener apretado la quita.
+        // La ventana deja pasar el mouse siempre, salvo con el cursor encima de algo anotado.
+        bool ListClicks { get { return cfg.Get("ListaClics", "si") != "no"; } }
+        Entry holdE; bool holdShown, holdGhost; int holdT1; float holdP;
+        const int HoldMs = 600;
+        // solo se repinta el icono que se esta apretando
+        // la parte de un poligono que queda por debajo de la altura y
+        static PointF[] BelowLine(PointF[] poly, float y)
+        {
+            var o = new List<PointF>();
+            for (int i = 0; i < poly.Length; i++)
+            {
+                PointF a = poly[i], b = poly[(i + 1) % poly.Length];
+                bool ina = a.Y >= y, inb = b.Y >= y;
+                if (ina) o.Add(a);
+                if (ina != inb) o.Add(new PointF(a.X + (b.X - a.X) * (y - a.Y) / (b.Y - a.Y), y));
+            }
+            return o.ToArray();
+        }
+        void InvalidateHold() { foreach (var it in items) if (it.E == holdE) { Invalidate(Rectangle.Inflate(it.R, 2, 2)); return; } Invalidate(); }
+        System.Windows.Forms.Timer holdTimer; // solo corre mientras se mantiene apretado (0,6 s)
+        bool listClickable;
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong")] static extern int LwGet(IntPtr h, int i);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong")] static extern int LwSet(IntPtr h, int i, int v);
+        Entry ListEntryAt(Point p)
+        {
+            var cur = st.Current();
+            foreach (var it in items) if (it.E != null && cur.Contains(it.E) && Hit(it, p)) return it.E;
+            return null;
+        }
+        // los perks son rombos y sus cuadrados se pisan entre si: se mira la forma real
+        static bool Hit(Item it, Point p)
+        {
+            if (!it.R.Contains(p)) return false;
+            if (!it.Slot) return true;
+            float dx = Math.Abs(p.X - (it.R.X + it.R.Width / 2f)) / (it.R.Width / 2f), dy = Math.Abs(p.Y - (it.R.Y + it.R.Height / 2f)) / (it.R.Height / 2f);
+            return dx + dy <= 1f;
+        }
+        void SetListClickable(bool on)
+        {
+            if (on == listClickable) return;
+            listClickable = on;
+            int ex = LwGet(Handle, -20);
+            LwSet(Handle, -20, on ? ex & ~0x20 : ex | 0x20);
+        }
+        void CancelHold() { if (holdTimer != null) holdTimer.Stop(); if (holdE != null) { bool was = holdShown; holdE = null; holdShown = false; if (was) Invalidate(); } }
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left || !ListClicks) return;
+            if (RotateAt(e.Location)) { NextBuild(); return; }
+            var en = ListEntryAt(e.Location);
+            bool ghost = false;
+            if (en == null) { en = GhostAt(e.Location); ghost = en != null; }
+            if (en == null) return;
+            holdE = en; holdGhost = ghost; holdShown = false;
+            if (holdTimer == null)
+            {
+                holdTimer = new System.Windows.Forms.Timer();
+                holdTimer.Tick += (s, a) =>
+                {
+                    // primero (0,25 s) se marca en rojo; despues (0,6 s mas) se quita
+                    // despues, se llena de rojo de abajo hacia arriba (~30 cuadros por segundo, solo ese icono) y al llenarse se quita
+                    if (!holdShown) { holdShown = true; holdT1 = Environment.TickCount; holdP = 0; holdTimer.Interval = 33; InvalidateHold(); return; }
+                    holdP = Math.Min(1f, (Environment.TickCount - holdT1) / (float)HoldMs);
+                    if (holdP < 1f) { InvalidateHold(); return; }
+                    holdTimer.Stop(); holdShown = false;
+                    var x = holdE; holdE = null;
+                    if (x != null && holdGhost) { ghostOff.Add(x); Relayout(); }  // sugerido: deja de sugerirse en esta partida
+                    else if (x != null) { ghostOff.Add(x); BoxDo(L("quitar ", "remove ") + x.Name, () => st.RemovePicked(x), "lista"); } // quitado a proposito: tampoco vuelve como sugerido
+                    Invalidate();
+                };
+            }
+            holdTimer.Stop(); holdTimer.Interval = 250; holdTimer.Start();
+        }
+        protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); CancelHold(); }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); CancelHold(); }
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            base.OnMouseDoubleClick(e);
+            CancelHold();
+            if (e.Button != MouseButtons.Left || !ListClicks) return;
+            var en = ListEntryAt(e.Location);
+            if (en != null && st.IsDoubt(en)) BoxDo(L("confirmar ", "confirm ") + en.Name, () => st.ToggleDoubt(en), "lista");
+            var gh = en == null ? GhostAt(e.Location) : null;
+            if (gh != null) BoxDo(gh.Name, () => st.AddPicked(gh, false), "lista");
+        }
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x21) { m.Result = (IntPtr)3; return; } // WM_MOUSEACTIVATE -> MA_NOACTIVATE: el clic llega, el foco queda en el juego
+            base.WndProc(ref m);
+        }
         int hoverSince;
 
         // ---- visibilidad: "siempre" o "solo con el menu de DBD abierto".
@@ -3615,8 +3872,11 @@ Puerto=8765
             {
                 var p = new Point(ci.x - Left, ci.y - Top);
                 foreach (var it in items)
-                    if (it.E != null && !string.IsNullOrEmpty(DInfo(it.E)) && it.R.Contains(p)) { over = it.E; rr = it.R; }
+                    if (it.E != null && !string.IsNullOrEmpty(DInfo(it.E)) && Hit(it, p)) { over = it.E; rr = it.R; }
             }
+            SetListClickable(ListClicks && Visible && cursor && (holdE != null || ListEntryAt(new Point(ci.x - Left, ci.y - Top)) != null || GhostAt(new Point(ci.x - Left, ci.y - Top)) != null || RotateAt(new Point(ci.x - Left, ci.y - Top))));
+            bool rh = ListClicks && Visible && cursor && RotateAt(new Point(ci.x - Left, ci.y - Top));
+            if (rh != rotHover) { rotHover = rh; Invalidate(); } // el boton bajo el cursor se aclara (se puede clickear)
             if (over != hoverE) { hoverE = over; hoverSince = Environment.TickCount; if (over == null && tip != null) tip.Hide(); return; }
             if (over == null || Environment.TickCount - hoverSince < 250) return;
             if (tip != null && tip.Visible && tip.Current == over) return;
@@ -3967,6 +4227,8 @@ Puerto=8765
             ParseCombo(cfg.Get("TeclaAyuda", "Shift+H"), out vkHelp, out helpSh, out helpCt, out helpAl, out n);
             ParseCombo(cfg.Get("TeclaNombres", "Shift+M"), out vkNames, out namesSh, out namesCt, out namesAl, out n);
             ParseCombo(cfg.Get("TeclaRueda", "Shift+R"), out vkWheel, out wheelSh, out wheelCt, out wheelAl, out n);
+            ParseCombo(cfg.Get("TeclaDeshacer", "Ctrl+Z"), out vkUndo, out undoSh, out undoCt, out undoAl, out n);
+            ParseCombo(cfg.Get("TeclaBuild", "Shift+B"), out vkBuild, out buildSh, out buildCt, out buildAl, out n);
             SetTypeKey(cfg.Get("TeclaEscribir", "Shift+T"));
             st.ClearKeyName = cfg.Get("TeclaLimpiar", "Shift+G");
         }
@@ -3979,6 +4241,8 @@ Puerto=8765
             Tuple.Create(L("Ayuda (mantener)", "Help (hold)"), "TeclaAyuda", "Shift+H", true),
             Tuple.Create(L("Mostrar nombres", "Show names"), "TeclaNombres", "Shift+M", true),
             Tuple.Create(L("Rueda (con el menú ESC)", "Wheel (with the ESC menu)"), "TeclaRueda", "Shift+R", true),
+            Tuple.Create(L("Deshacer", "Undo"), "TeclaDeshacer", "Ctrl+Z", true),
+            Tuple.Create(L("Otra build sugerida", "Next suggested build"), "TeclaBuild", "Shift+B", true),
         };
 
         void AskKey(Tuple<string, string, string, bool> act)
@@ -4483,7 +4747,8 @@ Puerto=8765
             else return;
             string said = picked != null && (!isCmd || byArrows) ? picked.Name : text;
             Heard("texto", said, what, false);
-            Log("[texto] " + said, what);
+            // en el historial, lo que se escribio y lo que se eligio ("bbq?" -> Barbecue & Chili), para ver de donde sale cada cosa
+            Log("[texto] " + (picked != null && (!isCmd || byArrows) && text.Length > 0 ? "\"" + text + "\" → " + picked.Name : said), what);
             bool ok = !Lang.Fail(what);
             if (ok) { st.Save(Path.Combine(dir, "estado.txt")); PublishDiff(before); }
             Feedback("⌨ " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), 5000);
@@ -4510,19 +4775,21 @@ Puerto=8765
         public bool IsFull(Entry e) { return st.IsFull(e); }
         public bool IsDoubt(Entry e) { return st.IsDoubt(e); }
 
-        public void BoxDo(string said, Func<string> act)
+        public void BoxDo(string said, Func<string> act, string src = "texto")
         {
             var before = st.Snapshot();
             string what = act();
-            Heard("texto", said, what, false);
-            Log("[texto] " + said, what);
+            Heard(src, said, what, false);
+            Log("[" + src + "] " + said, what);
             bool ok = !Lang.Fail(what);
             if (ok) { st.Save(Path.Combine(dir, "estado.txt")); PublishDiff(before); }
             Feedback("⌨ " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), 5000);
             Relayout();
         }
-        public void BoxRemove(Entry e) { BoxDo("quitar " + e.Name, () => st.RemovePicked(e)); }
-        public void BoxReplace(Entry old, Entry neu, bool doubt) { BoxDo("cambiar " + old.Name + " por " + neu.Name, () => st.ReplacePicked(old, neu, doubt)); }
+        public List<Entry> CurrentPicked() { return st.Current(); }
+        // lo que se quita (o se cambia por otro) a proposito no vuelve a aparecer como sugerido de la build
+        public void BoxRemove(Entry e) { ghostOff.Add(e); BoxDo("quitar " + e.Name, () => st.RemovePicked(e)); }
+        public void BoxReplace(Entry old, Entry neu, bool doubt) { ghostOff.Add(old); BoxDo("cambiar " + old.Name + " por " + neu.Name, () => st.ReplacePicked(old, neu, doubt)); }
         public void BoxToggleDoubt(Entry e) { BoxDo("duda " + e.Name, () => st.ToggleDoubt(e)); }
 
         class TypeBox : Form
@@ -4557,6 +4824,7 @@ Puerto=8765
             public void Open() { replaceTarget = replaceNew = null; tb.Text = ""; Refresh2(); Show(); }
             Entry replaceTarget; // "cambiar X": X elegido, ahora se escribe el nuevo
             Entry replaceNew;    // lista llena: el nuevo elegido, ahora se elige cual sale
+            readonly Dictionary<Entry, Entry> removeOf = new Dictionary<Entry, Entry>(); // filas "quitar" -> lo anotado
             // no se activa al mostrarse ni al hacerle clic: el juego conserva el foco
             protected override bool ShowWithoutActivation { get { return true; } }
             protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x8; return cp; } }
@@ -4568,6 +4836,7 @@ Puerto=8765
                 if (key == Keys.Escape || key == Keys.Enter || key == Keys.Up || key == Keys.Down || (key == Keys.Back && (shift || ctrl))) { OnKey(this, e); return; }
                 if (key == Keys.Back) { if (tb.Text.Length > 0) SetText(tb.Text.Substring(0, tb.Text.Length - 1)); return; }
                 if (ctrl && key == Keys.V) { try { string cb = Clipboard.GetText(); if (!string.IsNullOrEmpty(cb)) SetText(tb.Text + Regex.Replace(cb, @"\s+", " ").Trim()); } catch { } return; }
+                if (ctrl && key == Keys.Z) { ov.UndoLast(); return; }
                 if (ctrl) return;
                 foreach (char c in text) if (!char.IsControl(c)) SetText(tb.Text + c);
             }
@@ -4576,9 +4845,16 @@ Puerto=8765
             public void FocusText() { tb.Focus(); }
             public void SetText(string s) { tb.Text = s; tb.SelectionStart = s.Length; }
 
+            string lastQuery = "";
             void Refresh2()
             {
                 string why = null;
+                // lo elegido con flechas antes de este cambio (si solo se agrego "?" o un espacio, se mantiene)
+                Entry prevSel = lb.SelectedIndex >= 0 && lb.SelectedIndex < sugg.Count ? sugg[lb.SelectedIndex] : null;
+                bool prevRemove = prevSel != null && removeOf.ContainsKey(prevSel), prevArrows = byArrows;
+                string query = Txt.Norm(Regex.Replace(tb.Text ?? "", "[?¿]", " "));
+                bool sameQuery = query == lastQuery;
+                lastQuery = query;
                 if (replaceNew != null)
                 {
                     sugg = ov.CurrentMatching(tb.Text, replaceNew.K);
@@ -4605,6 +4881,20 @@ Puerto=8765
                 {
                     sugg = ov.Suggest(tb.Text);
                     string mode = ov.BoxMode(tb.Text);
+                    removeOf.Clear();
+                    if (mode.Length == 0)
+                    {
+                        var cur = ov.CurrentPicked();
+                        for (int i = 0; i < sugg.Count; i++)
+                            if (cur.Contains(sugg[i]))
+                            {
+                                var o = sugg[i];
+                                var q = new Entry { K = o.K, Name = o.Name, NameEs = o.NameEs, Icon = o.Icon, Rarity = o.Rarity, Killer = o.Killer };
+                                removeOf[q] = o;
+                                // sospecha: primero confirmarla y abajo quitar; ya confirmado: solo quitar (confirmar de nuevo no hace nada)
+                                if (ov.IsDoubt(o)) sugg.Insert(++i, q); else sugg[i] = q;
+                            }
+                    }
                     if (mode == "quitar") why = L("Quitar: elegí cuál (Enter)", "Remove: choose which one (Enter)");
                     else if (mode == "cambiar") why = L("Cambiar: elegí cuál sale (Enter) y después escribí el nuevo", "Change: choose which one goes out (Enter), then type the new one");
                     else if (mode == "duda") why = L("Duda: Enter alterna entre seguro y sospecha (?)", "Doubt: Enter toggles between sure and guess (?)");
@@ -4613,8 +4903,13 @@ Puerto=8765
                 confirmKiller = null;
                 lb.Items.Clear();
                 foreach (var e in sugg) lb.Items.Add(e);
-                if (sugg.Count > 0 && Txt.Norm(tb.Text).Length > 0) lb.SelectedIndex = 0; // cuadro vacio: nada elegido hasta bajar con flecha
+                if (sugg.Count > 0 && (Txt.Norm(tb.Text).Length > 0 || replaceNew != null)) lb.SelectedIndex = 0; // cuadro vacio: nada elegido hasta bajar con flecha (salvo "cual sacas")
                 byArrows = false;
+                if (sameQuery && prevSel != null)
+                {
+                    int k = sugg.FindIndex(x => prevRemove ? removeOf.ContainsKey(x) && x.Name == prevSel.Name : x == prevSel);
+                    if (k >= 0) { lb.SelectedIndex = k; byArrows = prevArrows; }
+                }
                 lb.Height = Math.Min(sugg.Count, 10) * lb.ItemHeight; // con mas de 10 aparece la barra para bajar
                 if (sugg.Count > 0) lb.TopIndex = 0;
                 bool noKiller = Regex.IsMatch(Txt.Norm(tb.Text), @"^(?:addons?|add ons?|adon|accesorios?)$") && !ov.HasKiller;
@@ -4635,6 +4930,23 @@ Puerto=8765
                 x += 26;
                 // etiqueta de color con el tipo (KILLER / PERK / ADDON / OFRENDA), todas del mismo ancho para que los nombres queden alineados
                 string kind; Color pill;
+                if (removeOf.ContainsKey(en))
+                {
+                    // ya anotado: "QUITAR" en rojo y el nombre tachado
+                    var qr = new Rectangle(x, e.Bounds.Y + 4, PillW, e.Bounds.Height - 8);
+                    using (var b = new SolidBrush(Color.FromArgb(150, 35, 40))) e.Graphics.FillRectangle(b, qr);
+                    TextRenderer.DrawText(e.Graphics, L("QUITAR", "REMOVE"), PillFont, qr, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                    int qx = x + PillW + 8;
+                    string qn = ov.DName(en);
+                    using (var sf = new Font(lb.Font, FontStyle.Strikeout))
+                    {
+                        TextRenderer.DrawText(e.Graphics, qn, sf, new Point(qx, e.Bounds.Y + 3), Color.FromArgb(240, 130, 130), TextFormatFlags.NoPrefix);
+                        qx += TextRenderer.MeasureText(qn, sf).Width;
+                    }
+                    using (var f = new Font("Segoe UI", 8.5f))
+                        TextRenderer.DrawText(e.Graphics, L("ya está anotado: Enter lo saca", "already on the list: Enter removes it"), f, new Point(qx + 10, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
+                    return;
+                }
                 if (en.Action != null)
                 {
                     var ar = new Rectangle(x, e.Bounds.Y + 4, PillW, e.Bounds.Height - 8);
@@ -4651,15 +4963,19 @@ Puerto=8765
                 switch (en.K)
                 {
                     case Kind.Killer: kind = "KILLER"; pill = Color.FromArgb(170, 40, 45); break;
-                    case Kind.Perk: kind = "PERK"; pill = Color.FromArgb(70, 80, 120); break;
+                    case Kind.Perk:
+                        if (TiersOn) { var tc = WheelWindow.TierColor(WheelWindow.PerkTier(en)); kind = "PERK " + WheelWindow.PerkTier(en); pill = Color.FromArgb(tc.R / 2, tc.G / 2, tc.B / 2); }
+                        else { kind = "PERK"; pill = Color.FromArgb(70, 80, 120); }
+                        break;
                     case Kind.Offering: kind = "OFRENDA"; pill = Color.FromArgb(140, 110, 40); break;
                     default: { var rc = RarityColor(en.Rarity); kind = "ADDON"; pill = Color.FromArgb(rc.R / 2, rc.G / 2, rc.B / 2); break; }
                 }
+                if (ov.IsDoubt(en)) { kind = L("CONFIRMAR", "CONFIRM"); pill = Color.FromArgb(40, 135, 70); } // sospecha anotada: Enter la confirma
                 var pr = new Rectangle(x, e.Bounds.Y + 4, PillW, e.Bounds.Height - 8);
                 using (var b = new SolidBrush(pill)) e.Graphics.FillRectangle(b, pr);
                 TextRenderer.DrawText(e.Graphics, kind, PillFont, pr, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
                 x += PillW + 8;
-                Color c = en.K == Kind.Killer ? Color.FromArgb(255, 120, 120) : en.K == Kind.Perk ? Color.WhiteSmoke : RarityColor(en.Rarity);
+                Color c = en.K == Kind.Killer ? Color.FromArgb(255, 120, 120) : en.K == Kind.Perk ? (TiersOn ? WheelWindow.TierColor(WheelWindow.PerkTier(en)) : Color.WhiteSmoke) : RarityColor(en.Rarity);
                 string name = ov.DName(en);
                 using (var nf = en.K == Kind.Killer ? new Font(lb.Font, FontStyle.Bold) : null)
                 {
@@ -4668,10 +4984,11 @@ Puerto=8765
                     x += TextRenderer.MeasureText(name, f0).Width;
                 }
                 using (var f = new Font("Segoe UI", 8.5f))
-                    TextRenderer.DrawText(e.Graphics, ov.SuggestTag(en) + (ov.IsDoubt(en) ? L("  · sospecha (?)", "  · guess (?)") : ""), f, new Point(x + 10, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
+                    TextRenderer.DrawText(e.Graphics, (ov.IsDoubt(en) ? L("sospecha (?): Enter la confirma", "guess (?): Enter confirms it") : ov.SuggestTag(en)), f, new Point(x + 10, e.Bounds.Y + 6), Color.FromArgb(130, 130, 145), TextFormatFlags.NoPrefix);
             }
             static readonly Font PillFont = new Font("Segoe UI", 7f, FontStyle.Bold);
-            const int PillW = 58;
+            bool TiersOn { get { return ov.cfg.Get("RuedaTiers", "si") != "no"; } } // el mismo color por tier que en la rueda
+            const int PillW = 70;
 
             void OnKey(object s, KeyEventArgs e)
             {
@@ -4708,6 +5025,8 @@ Puerto=8765
                     return;
                 }
                 Entry pa = lb.SelectedIndex >= 0 && lb.SelectedIndex < sugg.Count ? sugg[lb.SelectedIndex] : null;
+                Entry ro;
+                if (pa != null && replaceTarget == null && replaceNew == null && removeOf.TryGetValue(pa, out ro)) { ov.BoxRemove(ro); Close2(); return; }
                 if (replaceTarget == null && replaceNew == null && pa != null && pa.Action != null) { ov.DoAction(pa.Action); Close2(); return; }
                 if (replaceTarget == null && replaceNew == null && ov.BoxRoomHint(tb.Text) != null)
                 {
@@ -5565,7 +5884,7 @@ Puerto=8765
             Tuple.Create("Posicion", "arriba-derecha"), Tuple.Create("MargenX", "30"), Tuple.Create("MargenY", "140"),
             Tuple.Create("Escala", "100"), Tuple.Create("TamanoPerk", "72"), Tuple.Create("TamanoLetra", "14"),
             Tuple.Create("TamanoKiller", "12"), Tuple.Create("Opacidad", "0.85"), Tuple.Create("TamanoMapa", "220"),
-            Tuple.Create("OpacidadMapa", "90"), Tuple.Create("MapaX", "20"), Tuple.Create("MapaY", "20") };
+            Tuple.Create("OpacidadMapa", "90"), Tuple.Create("MapaX", "20"), Tuple.Create("MapaY", "20"), Tuple.Create("TamanoBotonBuild", "60") };
 
         // ---- estilo de la ventana: casi negro, rojo sangre, titulos condensados en mayusculas y rombos como los perks
         static class Dbd
@@ -5795,7 +6114,7 @@ Puerto=8765
                 try { SetWindowTheme(body.Handle, "DarkMode_Explorer", null); } catch { }
             }
 
-            void Refresh2() { refreshing = true; try { foreach (var r in refreshers) r(); } finally { refreshing = false; } }
+            internal void Refresh2() { refreshing = true; try { foreach (var r in refreshers) r(); } finally { refreshing = false; } }
 
             public void ShowPage(string page)
             {
@@ -5948,6 +6267,14 @@ Puerto=8765
                 Check(L("Mostrar el nombre del killer", "Show the killer's name"), () => ov.KillerOn, v => { ov.SetCfg("MostrarKiller", v ? "si" : "no"); ov.Relayout(); });
                 Slider(L("Tamaño del nombre del killer", "Killer name size"), 6, 22, () => C.GetInt("TamanoKiller", 12), v => { ov.Live("TamanoKiller", v.ToString()); ov.killerFont = null; ov.Relayout(); }, v => v.ToString());
                 Check(L("Mostrar solo con el menú de DBD abierto (ESC)", "Show only while the DBD menu is open (ESC)"), () => ov.MenuOnly, v => ov.SetCfg("Visibilidad", v ? "menu" : "siempre"));
+                Check(L("Clics en la lista: doble clic confirma una sospecha (?), mantener apretado quita", "Clicks on the list: double-click confirms a guess (?), hold removes"),
+                      () => C.Get("ListaClics", "si") != "no", v => ov.SetCfg("ListaClics", v ? "si" : "no"));
+                Check(L("Builds sugeridas (hens333.com): al anotar el killer, los lugares libres muestran una build; su tecla pasa a la siguiente (o la quita), doble clic anota y mantener apretado saca",
+                        "Suggested builds (hens333.com): once the killer is noted, empty slots show a build; its key cycles builds (or hides it), double-click notes a perk and holding removes it"),
+                      () => C.Get("BuildsSugeridas", "no") == "si", v => { ov.SetCfg("BuildsSugeridas", v ? "si" : "no"); ov.Relayout(); });
+                Check(L("Mostrar el botón de builds (abajo a la derecha de los perks)", "Show the builds button (bottom right of the perks)"),
+                      () => C.Get("BotonBuild", "si") != "no", v => { ov.SetCfg("BotonBuild", v ? "si" : "no"); ov.Invalidate(); });
+                Slider(L("Tamaño del botón de builds", "Builds button size"), 30, 100, () => C.GetInt("TamanoBotonBuild", 60), v => { ov.Live("TamanoBotonBuild", v.ToString()); ov.Invalidate(); }, v => v + " %");
                 Note(L("Mientras jugás la lista se oculta y aparece al abrir el menú ESC, al escribir con ", "While you play the list is hidden; it shows up when you open the ESC menu, when you type with ") + ov.TypeKeyText + L(" o cuando hay un mensaje.", " or when there's a message."));
             }
 
@@ -5981,6 +6308,15 @@ Puerto=8765
                 y += 40;
             }
 
+            void PadRow(string label, string key, string def)
+            {
+                body.Controls.Add(new Label { Text = label, AutoSize = true, Location = new Point(X, y + 6), ForeColor = Fg });
+                var v = new Label { AutoSize = false, Bounds = new Rectangle(X + 215, y + 4, 115, 22), ForeColor = Dbd.AccHi, Font = Dbd.Head(11f), UseMnemonic = false };
+                refreshers.Add(() => v.Text = ov.PadText(ov.PadMask(key, def)));
+                body.Controls.Add(v);
+                Btn(L("Cambiar…", "Change…"), X + 330, () => ov.PadRecord(key));
+                y += 40;
+            }
             void PageWheel()
             {
                 Title(L("Rueda", "Wheel"));
@@ -5995,6 +6331,13 @@ Puerto=8765
                 Check(L("Mostrar el puntero al apuntar (modos con la tecla)", "Show the pointer while aiming (key modes)"),
                       () => C.Get("RuedaPuntero", "no") == "si", v => ov.SetCfg("RuedaPuntero", v ? "si" : "no"));
                 Buttons(B(L("Probar la rueda", "Try the wheel"), () => ov.ToggleWheel()));
+                Title(L("Gamepad", "Gamepad"));
+                Check(L("Usar la rueda con gamepad (PlayStation, Xbox y otros)", "Use the wheel with a gamepad (PlayStation, Xbox and others)"),
+                      () => ov.PadOn, v => { ov.SetCfg("Gamepad", v ? "si" : "no"); ov.UpdatePad(); });
+                PadRow(L("Abrir (mantener)", "Open (hold)"), "PadAbrir", "L2");
+                PadRow(L("Elegir", "Pick"), "PadElegir", "R2");
+                Note(L("Mantené el botón de abrir y apuntá con el stick derecho; el de elegir elige y, con el stick al centro, vuelve atrás. Soltar cierra. El juego también recibe los botones (la app no los bloquea): si chocan con algo, cambialos.",
+                       "Hold the open button and aim with the right stick; the pick button picks and, with the stick centered, goes back. Releasing closes. The game also gets the buttons (the app doesn't block them): if they clash, change them."));
                 var pmodes = new[] { "categorias", "letras" };
                 Choice(L("Perks", "Perks"), new[] { L("Por lo que hacen (más usados primero)", "By what they do (most used first)"), L("Por letra", "By letter") },
                     () => Math.Max(0, Array.IndexOf(pmodes, C.Get("RuedaPerks", "categorias"))), i => ov.SetCfg("RuedaPerks", pmodes[i]));
@@ -6006,7 +6349,7 @@ Puerto=8765
                 Choice(L("Killers", "Killers"), new[] { L("Por tipo de poder", "By power type"), L("Originales y licenciados", "Originals and licensed"),
                                                         L("Más jugados primero", "Most played first"), L("Por letra", "By letter") },
                     () => Math.Max(0, Array.IndexOf(kmodes, C.Get("RuedaKillers", "poder"))), i => ov.SetCfg("RuedaKillers", kmodes[i]));
-                Check(L("Color por tier en los perks (S, A, B, C, D)", "Perk tier colors (S, A, B, C, D)"),
+                Check(L("Color por tier en los perks (S, A, B, C, D), en la rueda y al escribir", "Perk tier colors (S, A, B, C, D), in the wheel and while typing"),
                       () => C.Get("RuedaTiers", "si") != "no", v => ov.SetCfg("RuedaTiers", v ? "si" : "no"));
                 Title(L("Descripciones", "Descriptions"));
                 Check(L("Mostrar qué hace cada ofrenda y addon al pasar el mouse", "Show what each offering and add-on does on hover"),
@@ -6452,6 +6795,145 @@ Puerto=8765
         // Es una ventana que recibe los clics SIN activarse (el juego no pierde el foco) y no intercepta nada.
         WheelWindow wheelWin;
         int vkWheel; bool wheelSh, wheelCt, wheelAl, wheelDown;
+        int vkUndo; bool undoSh, undoCt, undoAl, undoDown;
+        int vkBuild; bool buildSh, buildCt, buildAl, buildDown;
+
+        // ---- builds sugeridas (hens333.com): con el killer anotado, los lugares libres de perks muestran una build, atenuada.
+        // Se elige sola la que mas coincide con lo anotado; la tecla (o la rueda) pasa a la siguiente; doble clic anota ese perk.
+        bool BuildsOn { get { return cfg.Get("BuildsSugeridas", "no") == "si"; } }
+        string buildsFor, buildsPerksKey = "";
+        readonly List<List<Entry>> builds = new List<List<Entry>>();
+        int buildPin = -1;
+        bool buildsHidden;                                     // la tecla recorre build 1 -> build 2 -> sin build -> build 1
+        readonly HashSet<Entry> ghostOff = new HashSet<Entry>(); // sugeridos sacados manteniendo apretado
+        Dictionary<string, Entry> perkKeys; object perkKeysOf;
+        void LoadBuilds()
+        {
+            HensBuilds.Init(Path.Combine(dir, "datos"));
+            if (perkKeys == null || perkKeysOf != cat)
+            {
+                perkKeys = new Dictionary<string, Entry>(); perkKeysOf = cat;
+                foreach (var p in cat.Perks) { string k = HensBuilds.Loose(p.Name); if (!perkKeys.ContainsKey(k)) perkKeys[k] = p; }
+                foreach (var rn in Catalog.Renames) { Entry o; string nk = HensBuilds.Loose(rn[1]); if (perkKeys.TryGetValue(HensBuilds.Loose(rn[0]), out o) && !perkKeys.ContainsKey(nk)) perkKeys[nk] = o; }
+                AddHensPerks();
+            }
+            string pk = string.Join("|", st.Perks.Select(p => p.Name));
+            if (pk != buildsPerksKey) { buildsPerksKey = pk; buildPin = -1; } // se anoto algo: vuelve a elegir sola
+            string slug = BuildsOn && st.Killer != null ? HensBuilds.Slug(st.Killer.Name) : null;
+            if (slug == buildsFor) return;
+            buildsFor = slug; buildPin = -1; builds.Clear(); buildsHidden = false; ghostOff.Clear();
+            if (slug == null) return;
+            var rows = HensBuilds.Get(slug, () => { try { BeginInvoke((Action)(() => { buildsFor = null; perkKeys = null; Relayout(); })); } catch { } });
+            if (rows == null) return;
+            if (perkKeys == null || perkKeysOf != cat)
+            {
+                perkKeys = new Dictionary<string, Entry>(); perkKeysOf = cat;
+                foreach (var p in cat.Perks) { string k = HensBuilds.Loose(p.Name); if (!perkKeys.ContainsKey(k)) perkKeys[k] = p; }
+                foreach (var rn in Catalog.Renames) { Entry o; string nk = HensBuilds.Loose(rn[1]); if (perkKeys.TryGetValue(HensBuilds.Loose(rn[0]), out o) && !perkKeys.ContainsKey(nk)) perkKeys[nk] = o; }
+                AddHensPerks();
+            }
+            foreach (var f in rows)
+            {
+                var b = new List<Entry>();
+                foreach (var s in f[3].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    Entry e;
+                    if (perkKeys.TryGetValue(HensBuilds.Loose(s), out e) && !b.Contains(e)) b.Add(e);
+                    else Log("[builds] perk de hens sin coincidencia: " + s, "");
+                }
+                if (b.Count > 0 && !builds.Any(x => x.SequenceEqual(b))) builds.Add(b);
+            }
+        }
+        // perks de capitulos nuevos que los datos de la app todavia no tienen: se suman con el nombre de Hens (asi tambien se pueden anotar)
+        void AddHensPerks()
+        {
+            foreach (var pi in HensBuilds.PerkInfo())
+            {
+                string k = HensBuilds.Loose(pi[1]);
+                if (perkKeys.ContainsKey(k) || perkKeys.ContainsKey(HensBuilds.Loose(pi[0]))) continue;
+                var e = new Entry { K = Kind.Perk, Name = pi[1], Owner = pi[2].StartsWith("General") ? "" : pi[2], Icon = "hens-" + pi[0] + ".png", Info = "", InfoEn = "" };
+                e.AddKey(pi[1]);
+                int ci = pi[1].IndexOf(':');
+                if (ci > 0) e.AddKey(pi[1].Substring(ci + 1));
+                cat.Perks.Add(e);
+                perkKeys[k] = e;
+            }
+        }
+        int CurBuild()
+        {
+            if (builds.Count == 0) return -1;
+            if (buildPin >= 0 && buildPin < builds.Count) return buildPin;
+            int best = 0, bc = -1;
+            for (int i = 0; i < builds.Count; i++) { int c = builds[i].Count(st.Perks.Contains); if (c > bc) { bc = c; best = i; } }
+            return best;
+        }
+        List<Entry> GhostPerks()
+        {
+            int bi = CurBuild();
+            if (bi < 0 || buildsHidden || st.Perks.Count >= 4) return new List<Entry>();
+            // primero los lugares (los primeros de la build que no estan anotados), despues se sacan los descartados: su lugar queda vacio
+            return builds[bi].Where(p => !st.Perks.Contains(p)).Take(4 - st.Perks.Count).Where(p => !ghostOff.Contains(p)).ToList();
+        }
+        internal bool CanNextBuild { get { return BuildsOn && builds.Count > 0 && st.Perks.Count < 4; } }
+        internal bool NextHidesBuild { get { return !buildsHidden && CurBuild() + 1 >= builds.Count; } } // lo que sigue es "sin build"
+        internal void NextBuild()
+        {
+            if (!CanNextBuild) return;
+            if (buildsHidden) { buildsHidden = false; buildPin = 0; }
+            else if (NextHidesBuild) buildsHidden = true;
+            else buildPin = CurBuild() + 1;
+            ghostOff.Clear();
+            Relayout();
+        }
+        // botones de builds en el hueco de abajo a la derecha del rombo (donde iria un quinto perk):
+        // uno por build y el ultimo (✖) quita la sugerencia. Con el cursor libre se clickean.
+        bool ShowBuildButtons { get { return BuildsOn && st.Killer != null && builds.Count > 0 && st.Perks.Count < 4; } }
+        // boton redondo grande en el hueco de abajo a la derecha (el triangulo entre la esquina y los rombos): rota build 1 -> 2 -> sin build
+        Rectangle RotateButton()
+        {
+            if (!ShowBuildButtons || cfg.Get("BotonBuild", "si") == "no") return Rectangle.Empty; // Configuracion: mostrar el boton
+            var sl = items.Where(i => i.Slot).ToList();
+            if (sl.Count < 4) return Rectangle.Empty;
+            int D = sl[0].R.Width, ccx = sl[0].R.X + D / 2, ccy = sl[1].R.Y + D / 2, off = sl[2].R.X + D / 2 - ccx;
+            // el triangulo libre de la esquina (su borde largo es la linea de los perks), achicado unos pixeles para que no se toquen.
+            // Devuelve el cuadrado que lo contiene: el triangulo es la mitad de abajo a la derecha.
+            int pct = Math.Max(30, Math.Min(100, cfg.GetInt("TamanoBotonBuild", 60)));   // Configuracion: tamaño del boton (se achica hacia la esquina)
+            float L = (off + D / 2f - 7) * pct / 100f, cx = ccx + off + D / 2f - 1, cy = ccy + off + D / 2f - 1;
+            return Rectangle.Round(new RectangleF(cx - L, cy - L, L, L));
+        }
+        // puntitos debajo del rombo: uno por build y uno (✖) por "sin build"; el encendido es lo que se ve
+        List<Point> BuildDots()
+        {
+            var o = new List<Point>();
+            if (!ShowBuildButtons) return o;
+            var sl = items.Where(i => i.Slot).ToList();
+            if (sl.Count < 4) return o;
+            var low = sl[3].R;
+            int n = builds.Count + 1, cx = low.X + low.Width / 2, cy = low.Bottom + 6;
+            for (int k = 0; k < n; k++) o.Add(new Point(cx - (n - 1) * 5 + k * 10, cy));
+            return o;
+        }
+        bool rotHover;
+        bool RotateAt(Point p)
+        {
+            var b = RotateButton();
+            if (b.IsEmpty) return false;
+            return p.X <= b.Right + 3 && p.Y <= b.Bottom + 3 && (b.Right - p.X) + (b.Bottom - p.Y) <= b.Width + 3;
+        }
+        void PickBuild(int k)
+        {
+            if (k < 0 || k >= builds.Count) return;
+            buildsHidden = false; buildPin = k; ghostOff.Clear();
+            Relayout();
+        }
+        Entry GhostAt(Point p) { foreach (var it in items) if (it.Ghost && it.E != null && Hit(it, p)) return it.E; return null; }
+        // deshacer lo ultimo (o el borrado de la lista)
+        internal void UndoLast()
+        {
+            if (CanUndoClear) { UndoClear(); return; }
+            if (!st.CanUndo) { Feedback(L("nada para deshacer", "nothing to undo"), Color.Silver, 2000); return; }
+            BoxDo(L("deshacer", "undo"), () => { string w = st.Apply("deshacer"); int i = w.IndexOf(" · "); return i > 0 ? w.Substring(0, i) : w; }, "tecla");
+        }
         volatile bool wheelOpen; // lo lee el gancho de teclas (otro hilo): con la rueda abierta, ESC la cierra
 
         public void ToggleWheel()
@@ -6466,6 +6948,264 @@ Puerto=8765
             wheelWin.Open();
         }
 
+        // ---- gamepad (opcional, apagado por defecto). Se LEE con Raw Input: Windows avisa cada informe del control,
+        // sin consultar en bucle; no se bloquea ni se toca nada (el juego recibe todo igual).
+        // Botones "canonicos" (bits): 0 Cuadrado/X 1 Cruz/A 2 Circulo/B 3 Triangulo/Y 4 L1 5 R1 6 L2 7 R2 8 Share/View 9 Options/Menu
+        // 10 L3 11 R3 12 PS 13 Touchpad 14 arriba 15 derecha 16 abajo 17 izquierda
+        static readonly string[] PadTok = { "Square", "Cross", "Circle", "Triangle", "L1", "R1", "L2", "R2", "Share", "Options", "L3", "R3", "PS", "Touchpad", "Up", "Right", "Down", "Left" };
+        static readonly string[] PadPs = { "□", "✕", "○", "△", "L1", "R1", "L2", "R2", "Share", "Options", "L3", "R3", "PS", "Touchpad", "↑", "→", "↓", "←" };
+        static readonly string[] PadXb = { "X", "A", "B", "Y", "LB", "RB", "LT", "RT", "View", "Menu", "LS", "RS", "Guide", "—", "↑", "→", "↓", "←" };
+        PadReader pad;
+        bool padXbox;
+        uint padPrev, padRecMask;
+        string padRecord;
+        internal bool PadOn { get { return cfg.Get("Gamepad", "no") == "si"; } }
+        internal void UpdatePad()
+        {
+            if (PadOn && pad == null) pad = new PadReader(this);
+            else if (!PadOn && pad != null) { pad.Close(); pad = null; }
+        }
+        internal uint PadMask(string key, string def)
+        {
+            uint m = 0;
+            foreach (var t in cfg.Get(key, def).Split('+')) { int i = Array.FindIndex(PadTok, x => x.Equals(t.Trim(), StringComparison.OrdinalIgnoreCase)); if (i >= 0) m |= 1u << i; }
+            return m;
+        }
+        internal string PadText(uint m)
+        {
+            var n = padXbox ? PadXb : PadPs;
+            var parts = Enumerable.Range(0, PadTok.Length).Where(i => (m & (1u << i)) != 0).Select(i => n[i]).ToList();
+            return parts.Count > 0 ? string.Join(" + ", parts) : L("sin botón", "no button");
+        }
+        internal void PadRecord(string key)
+        {
+            if (pad == null) { Feedback(L("primero activá \"Usar la rueda con gamepad\"", "first turn on \"Use the wheel with a gamepad\""), Color.FromArgb(240, 170, 80), 4000); return; }
+            padRecord = key; padRecMask = 0;
+            Feedback(L("apretá en el control el botón (o la combinación) y soltá…", "press the button (or combination) on the controller and release…"), Color.FromArgb(130, 190, 255), 8000);
+        }
+        // un informe del control (ya traducido a botones canonicos y stick derecho -1..1)
+        void OnPad(uint bits, float rx, float ry, bool xbox)
+        {
+            padXbox = xbox;
+            bool padWheel = wheelWin != null && !wheelWin.IsDisposed && wheelWin.Visible && wheelWin.Pad;
+            if (bits == padPrev && !padWheel) return; // nada nuevo (la mayoria de los informes): no se hace nada
+            uint pressed = bits & ~padPrev;
+            if (padRecord != null)
+            {
+                if (bits != 0) padRecMask |= bits;
+                else if (padRecMask != 0)
+                {
+                    SetCfg(padRecord, string.Join("+", Enumerable.Range(0, PadTok.Length).Where(i => (padRecMask & (1u << i)) != 0).Select(i => PadTok[i])));
+                    Feedback(L("listo: ", "done: ") + PadText(padRecMask), Color.FromArgb(150, 220, 150), 3000);
+                    padRecord = null; padRecMask = 0;
+                    if (settingsWin != null && !settingsWin.IsDisposed) settingsWin.Refresh2();
+                }
+                padPrev = bits;
+                return;
+            }
+            uint open = PadMask("PadAbrir", "L2"), pick = PadMask("PadElegir", "R2");
+            bool held = open != 0 && (bits & open) == open, was = open != 0 && (padPrev & open) == open;
+            padPrev = bits;
+            if (held && !was && (!KeysOnlyInDbd || DbdInFront()))
+            {
+                if (wheelWin == null || wheelWin.IsDisposed) wheelWin = new WheelWindow(this);
+                wheelWin.Open(true, true);
+                padWheel = true;
+            }
+            else if (!held && was && padWheel) { wheelWin.Hide(); return; } // soltar cierra
+            if (!held || !padWheel) return;
+            wheelWin.PadAim(rx, ry);
+            if (pick != 0 && (pressed & pick) != 0 && (bits & pick) == pick) wheelWin.PadPick();
+        }
+
+        class PadReader : NativeWindow
+        {
+            readonly Overlay ov;
+            [StructLayout(LayoutKind.Sequential)] struct RAWINPUTDEVICE { public ushort UsagePage, Usage; public uint Flags; public IntPtr Target; }
+            [StructLayout(LayoutKind.Sequential)] struct RAWINPUTHEADER { public uint Type, Size; public IntPtr Device, WParam; }
+            [DllImport("user32.dll")] static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] d, uint n, uint size);
+            [DllImport("user32.dll")] static extern uint GetRawInputData(IntPtr h, uint cmd, IntPtr data, ref uint size, uint headerSize);
+            [DllImport("user32.dll")] static extern uint GetRawInputDeviceInfo(IntPtr dev, uint cmd, IntPtr data, ref uint size);
+            [DllImport("hid.dll")] static extern int HidP_GetCaps(IntPtr pp, IntPtr caps);
+            [DllImport("hid.dll")] static extern int HidP_GetValueCaps(int type, IntPtr caps, ref ushort len, IntPtr pp);
+            [DllImport("hid.dll")] static extern int HidP_GetUsages(int type, ushort page, ushort link, ushort[] list, ref uint len, IntPtr pp, IntPtr report, uint reportLen);
+            [DllImport("hid.dll")] static extern int HidP_GetUsageValue(int type, ushort page, ushort link, ushort usage, out uint value, IntPtr pp, IntPtr report, uint reportLen);
+            const int Ok = 0x00110000;
+            class Dev { public int Vid, Pid; public IntPtr Pp; public Dictionary<ushort, int[]> Range = new Dictionary<ushort, int[]>(); }
+            readonly Dictionary<IntPtr, Dev> devs = new Dictionary<IntPtr, Dev>();
+            IntPtr buf = Marshal.AllocHGlobal(2048);
+            readonly ushort[] usages = new ushort[64];
+            readonly uint hs = (uint)Marshal.SizeOf(typeof(RAWINPUTHEADER));
+
+            public PadReader(Overlay o)
+            {
+                ov = o;
+                CreateHandle(new CreateParams());
+                Register(true);
+            }
+            void Register(bool on)
+            {
+                // 4 = joystick, 5 = gamepad (los de PlayStation y Xbox se anuncian como gamepad)
+                var d = new[] { new RAWINPUTDEVICE { UsagePage = 1, Usage = 4, Flags = on ? 0x100u : 0x1u, Target = on ? Handle : IntPtr.Zero },
+                                new RAWINPUTDEVICE { UsagePage = 1, Usage = 5, Flags = on ? 0x100u : 0x1u, Target = on ? Handle : IntPtr.Zero } };
+                RegisterRawInputDevices(d, 2, (uint)Marshal.SizeOf(typeof(RAWINPUTDEVICE)));
+            }
+            public void Close()
+            {
+                Register(false);
+                DestroyHandle();
+                foreach (var d in devs.Values) if (d.Pp != IntPtr.Zero) Marshal.FreeHGlobal(d.Pp);
+                devs.Clear();
+                if (buf != IntPtr.Zero) { Marshal.FreeHGlobal(buf); buf = IntPtr.Zero; }
+            }
+            protected override void WndProc(ref Message m)
+            {
+                if (m.Msg == 0xFF && buf != IntPtr.Zero) { try { OnInput(m.LParam); } catch { } }
+                base.WndProc(ref m);
+            }
+            Dev GetDev(IntPtr h)
+            {
+                Dev d;
+                if (devs.TryGetValue(h, out d)) return d;
+                d = new Dev();
+                IntPtr info = Marshal.AllocHGlobal(32);
+                try
+                {
+                    Marshal.WriteInt32(info, 32);
+                    uint sz = 32;
+                    if (GetRawInputDeviceInfo(h, 0x2000000b, info, ref sz) != unchecked((uint)-1)) { d.Vid = Marshal.ReadInt32(info, 8); d.Pid = Marshal.ReadInt32(info, 12); }
+                }
+                finally { Marshal.FreeHGlobal(info); }
+                uint ps = 0;
+                GetRawInputDeviceInfo(h, 0x20000005, IntPtr.Zero, ref ps);
+                if (ps > 0 && ps < 1 << 20)
+                {
+                    d.Pp = Marshal.AllocHGlobal((int)ps);
+                    if (GetRawInputDeviceInfo(h, 0x20000005, d.Pp, ref ps) == unchecked((uint)-1)) { Marshal.FreeHGlobal(d.Pp); d.Pp = IntPtr.Zero; }
+                }
+                if (d.Pp != IntPtr.Zero)
+                {
+                    // rangos de los ejes (cada control declara los suyos)
+                    IntPtr caps = Marshal.AllocHGlobal(64);
+                    try
+                    {
+                        if (HidP_GetCaps(d.Pp, caps) == Ok)
+                        {
+                            ushort n = (ushort)Marshal.ReadInt16(caps, 48);
+                            if (n > 0 && n < 256)
+                            {
+                                IntPtr vc = Marshal.AllocHGlobal(n * 72);
+                                try
+                                {
+                                    if (HidP_GetValueCaps(0, vc, ref n, d.Pp) == Ok)
+                                        for (int i = 0; i < n; i++)
+                                        {
+                                            IntPtr c = vc + i * 72;
+                                            if ((ushort)Marshal.ReadInt16(c, 0) != 1) continue;
+                                            int bits = (ushort)Marshal.ReadInt16(c, 18), lo = Marshal.ReadInt32(c, 40), hi = Marshal.ReadInt32(c, 44);
+                                            if (hi <= lo) { lo = 0; hi = bits >= 31 ? int.MaxValue : (1 << bits) - 1; }
+                                            ushort u0 = (ushort)Marshal.ReadInt16(c, 56), u1 = Marshal.ReadByte(c, 12) != 0 ? (ushort)Marshal.ReadInt16(c, 58) : u0;
+                                            for (ushort u = u0; u <= u1 && u < 0x40; u++) d.Range[u] = new[] { lo, hi };
+                                        }
+                                }
+                                finally { Marshal.FreeHGlobal(vc); }
+                            }
+                        }
+                    }
+                    finally { Marshal.FreeHGlobal(caps); }
+                }
+                devs[h] = d;
+                return d;
+            }
+            void OnInput(IntPtr h)
+            {
+                uint size = 0;
+                GetRawInputData(h, 0x10000003, IntPtr.Zero, ref size, hs);
+                if (size == 0 || size > 2048) return;
+                if (GetRawInputData(h, 0x10000003, buf, ref size, hs) != size) return;
+                if (Marshal.ReadInt32(buf) != 2) return; // RIM_TYPEHID
+                IntPtr dev = Marshal.ReadIntPtr(buf, 8);
+                uint rs = (uint)Marshal.ReadInt32(buf, (int)hs), cnt = (uint)Marshal.ReadInt32(buf, (int)hs + 4);
+                if (rs == 0 || cnt == 0 || hs + 8 + rs * cnt > size) return;
+                IntPtr rep = buf + (int)(hs + 8 + rs * (cnt - 1)); // el ultimo informe es el estado actual
+                var d = GetDev(dev);
+                uint bits; float rx, ry;
+                if (d.Vid == 0x054C ? !ParseSony(d, rep, rs, out bits, out rx, out ry) : !ParseHid(d, rep, rs, out bits, out rx, out ry)) return;
+                ov.OnPad(bits, rx, ry, d.Vid == 0x045E);
+            }
+            static uint Dpad(int v)
+            {
+                uint b = 0;
+                if (v == 7 || v == 0 || v == 1) b |= 1u << 14;
+                if (v == 1 || v == 2 || v == 3) b |= 1u << 15;
+                if (v == 3 || v == 4 || v == 5) b |= 1u << 16;
+                if (v == 5 || v == 6 || v == 7) b |= 1u << 17;
+                return b;
+            }
+            static float Ax(int v) { return (v - 127.5f) / 127.5f; }
+            // PlayStation: se leen los bytes del informe (por Bluetooth el control manda un formato propio que el descriptor no explica)
+            static bool ParseSony(Dev d, IntPtr r, uint len, out uint bits, out float rx, out float ry)
+            {
+                bits = 0; rx = ry = 0;
+                int id = Marshal.ReadByte(r), b; bool dualSense = d.Pid == 0x0CE6 || d.Pid == 0x0DF2;
+                int sticks, btn;
+                if (dualSense && id == 0x01 && len >= 64) { b = 1; sticks = b; btn = b + 7; }        // DualSense por cable
+                else if (dualSense && id == 0x31 && len >= 12) { b = 2; sticks = b; btn = b + 7; }   // DualSense por Bluetooth
+                else if (id == 0x11 && len >= 12) { b = 3; sticks = b; btn = b + 4; }                // DS4 por Bluetooth
+                else if (id == 0x01 && len >= 8) { b = 1; sticks = b; btn = b + 4; }                 // DS4 por cable / modo basico
+                else return false;
+                int b0 = Marshal.ReadByte(r, btn), b1 = Marshal.ReadByte(r, btn + 1), b2 = Marshal.ReadByte(r, btn + 2);
+                bits = (uint)((b0 >> 4) & 0xF) | (uint)b1 << 4 | (uint)(b2 & 0x3) << 12 | Dpad(b0 & 0xF);
+                rx = Ax(Marshal.ReadByte(r, sticks + 2)); ry = Ax(Marshal.ReadByte(r, sticks + 3));
+                return true;
+            }
+            float Val(Dev d, ushort u, IntPtr r, uint len, out bool ok)
+            {
+                uint v = 0; int[] rg;
+                ok = d.Range.TryGetValue(u, out rg) && HidP_GetUsageValue(0, 1, 0, u, out v, d.Pp, r, len) == Ok;
+                if (!ok) return 0;
+                return Math.Max(-1f, Math.Min(1f, ((long)v - rg[0]) * 2f / Math.Max(1L, (long)rg[1] - rg[0]) - 1f));
+            }
+            // el resto (Xbox, genericos): lo que declara el descriptor HID
+            bool ParseHid(Dev d, IntPtr r, uint len, out uint bits, out float rx, out float ry)
+            {
+                bits = 0; rx = ry = 0;
+                if (d.Pp == IntPtr.Zero) return false;
+                uint n = (uint)usages.Length;
+                if (HidP_GetUsages(0, 9, 0, usages, ref n, d.Pp, r, len) != Ok) n = 0;
+                bool xbox = d.Vid == 0x045E;
+                int[] xmap = { 1, 2, 0, 3, 4, 5, 8, 9, 10, 11 }; // A B X Y LB RB View Menu LS RS
+                for (int i = 0; i < n; i++)
+                {
+                    int u = usages[i];
+                    if (xbox) { if (u >= 1 && u <= xmap.Length) bits |= 1u << xmap[u - 1]; }
+                    else if (u >= 1 && u <= 14) bits |= 1u << (u - 1);
+                }
+                bool ok;
+                uint hv;
+                int[] hr;
+                if (d.Range.TryGetValue(0x39, out hr) && HidP_GetUsageValue(0, 1, 0, 0x39, out hv, d.Pp, r, len) == Ok) bits |= Dpad((int)hv - hr[0]);
+                // stick derecho: Rx/Ry (Xbox) o Z/Rz (la mayoria de los genericos)
+                rx = Val(d, 0x33, r, len, out ok); bool okx = ok;
+                ry = Val(d, 0x34, r, len, out ok);
+                if (!okx || !ok || !xbox && d.Range.ContainsKey(0x35)) { rx = Val(d, 0x32, r, len, out ok); ry = Val(d, 0x35, r, len, out ok); }
+                // gatillos del Xbox por HID: un solo eje (Z) compartido
+                if (xbox) { float z = Val(d, 0x32, r, len, out ok); if (ok && z > 0.5f) bits |= 1u << 6; if (ok && z < -0.5f) bits |= 1u << 7; }
+                return true;
+            }
+        }
+
+        void WheelSwap(Entry old, Entry neu)
+        {
+            EndSample();
+            var before = st.Snapshot();
+            string what = st.ReplacePicked(old, neu, false);
+            bool ok = !Lang.Fail(what);
+            if (ok) { st.Save(Path.Combine(dir, "estado.txt")); PublishDiff(before); }
+            Log("[rueda] " + old.Name + " -> " + neu.Name, what);
+            Feedback("◈ " + what, ok ? Color.FromArgb(150, 220, 150) : Color.FromArgb(240, 170, 80), 5000);
+            Relayout();
+        }
         void WheelPick(Entry e)
         {
             if (e.Action != null) { DoAction(e.Action); return; }
@@ -6482,8 +7222,8 @@ Puerto=8765
 
         class WheelWindow : Form
         {
-            class Seg { public string Label, Big, Small, Icon, Glyph; public Entry E; public Action Go; public bool Marked; public int Group = -1; }
-            class Level { public string Title; public List<Seg> Segs = new List<Seg>(); }
+            class Seg { public string Label, Big, Small, Icon, Glyph; public Entry E; public Action Go; public bool Marked, Leaf; public int Group = -1; }
+            class Level { public string Title; public List<Seg> Segs = new List<Seg>(); public Entry Swap; } // Swap: lo que entra (rueda de "cual sale")
 
             readonly Overlay ov;
             readonly List<Level> stack = new List<Level>();
@@ -6601,14 +7341,40 @@ Puerto=8765
                 base.WndProc(ref m);
             }
 
-            public void Open(bool gesture = false)
+            public bool Pad;
+            // gamepad: el stick derecho apunta (posicion absoluta, con un margen al centro); el boton de elegir elige o, al centro, vuelve
+            public void PadAim(float x, float y)
+            {
+                float mag = (float)Math.Sqrt(x * x + y * y);
+                int nh = hover;
+                if (mag < (hover >= 0 ? 0.35f : 0.55f)) nh = -1;
+                else
+                {
+                    int n = Math.Max(1, Cur.Segs.Count);
+                    float per = 360f / n;
+                    double ang = Math.Atan2(y, x) * 180 / Math.PI + 90 + per / 2;
+                    ang = ((ang % 360) + 360) % 360;
+                    nh = Math.Min(n - 1, (int)(ang / per));
+                }
+                if (nh != hover) { hover = nh; Invalidate(); }
+            }
+            public void PadPick()
+            {
+                int h = hover;
+                hover = -1;
+                if (h >= 0 && h < Cur.Segs.Count) Cur.Segs[h].Go(); else Back();
+                if (Visible) Invalidate();
+            }
+            public void Open(bool gesture = false, bool pad = false)
             {
                 Gesture = gesture;
+                Pad = pad;
+                if (pad) ClickMode = true;
                 steering = false; vx = vy = 0;
                 // en modo gesto la ventana no recibe clics (pasan al juego): todo se maneja con la tecla y el movimiento
                 int ex = GetWindowLong(Handle, -20);
                 SetWindowLong(Handle, -20, gesture ? ex | 0x20 : ex & ~0x20);
-                RawMouse(gesture);
+                RawMouse(gesture && !pad);
                 stack.Clear();
                 stack.Add(Root());
                 hover = -1;
@@ -6631,33 +7397,37 @@ Puerto=8765
                 switch (r) { case "iridescent": case "visceral": return 0; case "veryrare": return 1; case "rare": return 2; case "uncommon": return 3; case "common": return 4; default: return 5; }
             }
             // color de rareza (addons y ofrendas), como el fondo de los iconos en el juego
-            // tiers de perks (S mejor ... D peor): opinion del meta, fija, se actualiza a mano. Lo que no esta en la lista es C.
+            // tiers de perks (S mejor ... D peor), parche 10.2.2a/b (noviembre 2026). Base: timesaver.gg/blog/dbd-best-killer-perks-tier-list-2026
+            // (criterio del autor contrastado con NightLight y BHVR). Lo que esa lista no tiene se ubica por cuantas builds de
+            // hens333.com/killerbuilds lo usan (10 o mas: A; 5 a 9: B; menos: C). Lo que no esta en ningun lado es D.
+            // Los renombrados (licencias que se fueron) van con los dos nombres.
             static readonly string[][] PerkTierList = {
-                new[] { "S", "Pain Resonance", "Grim Embrace", "Deadlock", "Dead Mans Switch", "Pop Goes the Weasel", "Eruption", "Corrupt Intervention",
-                        "Lethal Pursuer", "Barbecue & Chili", "Nowhere to Hide" },
-                new[] { "A", "No One Escapes Death", "Pentimento", "Plaything", "Undying", "Discordance", "Starstruck", "Bamboozle", "No Way Out",
-                        "Sloppy Butcher", "Gift of Pain", "Floods of Rage", "Coup de Grace", "Infectious Fright", "Leverage", "Oppression",
-                        "Machine Learning", "Friends Til the End" },
-                new[] { "B", "Brutal Strength", "Enduring", "Spirit Fury", "Unrelenting", "Save the best for last", "Agitation", "Surveillance",
-                        "Lightborn", "Thanatophobia", "Hysteria", "Merciless Storm", "Overcharge", "Call of Brine", "Devour Hope", "The Third Seal",
-                        "Blood Favor", "Nothing But Misery", "Ruin", "Darkness Revealed", "Dark Devotion", "Ultimate Weapon", "Weave Attunement",
-                        "Make your Choice", "Alien Instinct", "Gearhead", "Coulrophobia", "Knock Out", "Help Wanted", "Terminus", "Blood Warden",
-                        "Undone", "Forced Hesitation" },
-                new[] { "D", "Bloodhound", "Hoarder", "Beast of Prey", "Insidious", "Iron Grasp", "Franklins Demise", "Shattered Hope",
-                        "Huntress Lullaby", "Spies from the Shadows", "Territorial Imperative", "Haywire", "Celestial Witness", "Silent Shadow",
-                        "Rampage", "All Shaking Thunder" } };
+                new[] { "S", "Pain Resonance", "Corrupt Intervention", "Pop Goes the Weasel", "Grim Embrace", "Lethal Pursuer", "Nowhere to Hide" },
+                new[] { "A", "Help Wanted", "Undone", "Eruption", "Ruin", "Dead Mans Switch", "Surge", "Unrelenting",
+                        "Keep Them Waiting", "Save the Best for Last", "No Holds Barred", "Deadlock", "Bamboozle",
+                        "Weeping Wounds", "Gift of Pain", "Turn Back the Clock", "Spies from the Shadows", "Fortunes Fool", "Plaything" },
+                new[] { "B", "Monstrous Shrine", "Machine Learning", "Ravenous", "Distressing", "Barbecue & Chili", "Darkness Revealed",
+                        "Bitter Murmur", "Knock Out", "A Nurses Calling", "Friends til the End", "One Track Mind", "Brutal Strength",
+                        "Sloppy Butcher", "Enduring", "No Way Out", "Agitation", "Whispers", "Lay Waste", "Tinkerer" },
+                new[] { "C", "Thrill of the Hunt", "Blood Favor", "Dissolution", "Dark Arrogance", "Shattered Hope", "Dominance", "Insidious",
+                        "Nothing but Misery", "Deathbound", "Predator", "Territorial Imperative",
+                        "Thanatophobia", "See How They Run", "Play With Your Food", "Devour Hope", "Genetic Limits", "Dragons Grip", "Deerstalker",
+                        "Unforeseen", "Starstruck", "Secret Project", "Remember Me", "Rapid Brutality", "Rancor", "Phantom Fear", "No Quarter",
+                        "Mindbreaker", "Leverage", "Languid Touch", "Infectious Fright", "Wretched Fate", "Pentimento", "Hive Mind",
+                        "Haunted Ground", "Crowd Control", "Forever Entwined", "Discordance", "Coup de Grace", "Batteries Included", "Gaining Steam" } };
             // perks que practicamente no se ven en partidas (opinion del meta, fija). Solo se separan en categorias de mas de 12.
             static readonly string[] RarePerks = {
-                "Huntress Lullaby", "Overture of Doom", "Hive Mind", "Under Your Thumb", "Scared to Death",
-                "Dragons Grip", "Game Afoot", "Unforeseen", "Turn Back The Clock", "Lay Waste", "Tinkerer", "Mindbreaker",
-                "Shattered Hope", "Celestial Witness", "Territorial Imperative", "Human Greed", "Dominance", "Phantom Fear", "Zanshin Tactics",
-                "Awakened Awareness", "Deerstalker", "Im All Ears", "Overwhelming Presence", "Predator", "Nemesis",
+                "Huntress Lullaby", "Overture of Doom", "Under Your Thumb", "Scared to Death",
+                "Game Afoot",
+                "Shattered Hope", "Celestial Witness", "Territorial Imperative", "Human Greed", "Dominance", "Zanshin Tactics",
+                "Awakened Awareness", "Im All Ears", "Overwhelming Presence", "Predator", "Nemesis",
                 "Superior Anatomy", "Dark Arrogance", "All Shaking Thunder", "Rampage", "Monitor & Abuse", "Shadowborn", "Whispers", "Unbound",
-                "Beast of Prey", "Insidious", "Languid Touch", "Hubris", "Blood Echo", "Forced Penance", "Genetic Limits" };
+                "Beast of Prey", "Insidious", "Languid Touch", "Hubris", "Blood Echo", "Forced Penance" };
             static HashSet<string> rarePerks;
             static bool IsRarePerk(Entry e)
             {
                 if (rarePerks == null) rarePerks = new HashSet<string>(RarePerks.Select(Bare));
+                if (HensBuilds.IsUsed(e.Name)) return false;
                 return rarePerks.Contains(Bare(Regex.Replace(e.Name, @"^(Hex|Scourge Hook|Boon|Invocation):\s*", "")));
             }
             static Dictionary<string, string> perkTiers;
@@ -6670,18 +7440,19 @@ Puerto=8765
                     foreach (var t in PerkTierList) for (int i = 1; i < t.Length; i++) perkTiers[Bare(t[i])] = t[0];
                 }
                 string v;
-                return perkTiers.TryGetValue(Bare(Regex.Replace(e.Name, @"^(Hex|Scourge Hook|Boon|Invocation):\s*", "")), out v) ? v : "C";
+                return perkTiers.TryGetValue(Bare(Regex.Replace(e.Name, @"^(Hex|Scourge Hook|Boon|Invocation):\s*", "")), out v) ? v : "D";
             }
             public static bool ShowTiers = true; // Configuracion > Rueda
-            static Color TierColor(string t)
+            internal static Color TierColor(string t)
             {
                 switch (t)
                 {
-                    case "S": return Color.FromArgb(230, 70, 70);
-                    case "A": return Color.FromArgb(240, 150, 60);
-                    case "B": return Color.FromArgb(232, 204, 80);
-                    case "C": return Color.FromArgb(120, 200, 110);
-                    default: return Color.FromArgb(110, 160, 230);
+                    // los colores de rareza del juego: S iridiscente, A muy raro (violeta), B raro (verde), C poco comun (amarillo), D comun (marron)
+                    case "S": return RarityColor("visceral");
+                    case "A": return RarityColor("veryrare");
+                    case "B": return RarityColor("rare");
+                    case "C": return RarityColor("uncommon");
+                    default: return RarityColor("common");
                 }
             }
             static Color? RarColor(Entry e)
@@ -7001,7 +7772,7 @@ Puerto=8765
 
             // icono centrado en (cx, cy): los cuadrados ocupan s x s; los anchos (fotos de mapas) un poco mas de ancho, sin deformarse
             // abre otra rueda (categoria, letra, reino, "mas…", quitar); deshacer y lo que se elige, no
-            static bool IsSub(Seg s) { return s.E == null && s.Glyph != "↶"; }
+            static bool IsSub(Seg s) { return s.E == null && s.Glyph != "↶" && !s.Leaf; }
             static bool IsPhoto(Seg s)
             {
                 if (s.E != null) return s.E.Icon != null && s.E.Action != null && s.E.Action.StartsWith("mapa:");
@@ -7076,7 +7847,19 @@ Puerto=8765
                 // quitar: solo si hay algo anotado; muestra lo anotado y al elegir se borra
                 if (ov.st.Current().Count > 0)
                     lv.Segs.Add(new Seg { Label = L("Quitar", "Remove"), Big = L("QUITAR", "REMOVE"), Glyph = "✖", Go = () => Push(RemoveLevel()) });
-                if (ov.st.CanUndo)
+                // partida nueva (lo mismo que mantener la tecla de borrar): para quien no usa el teclado
+                if (ov.HasAnything())
+                    lv.Segs.Add(new Seg { Label = L("Partida nueva: borrar todo lo anotado", "New match: clear everything"), Big = L("PARTIDA NUEVA", "NEW MATCH"), Glyph = "↺", Leaf = true,
+                                          Go = () => { Hide(); ov.ClearWithUndo(); } });
+                if (ov.CanNextBuild)
+                    lv.Segs.Add(ov.NextHidesBuild
+                        ? new Seg { Label = L("Quitar la build sugerida", "Hide the suggested build"), Big = L("QUITAR BUILD", "HIDE BUILD"), Glyph = "✖", Leaf = true, Go = () => { Hide(); ov.NextBuild(); } }
+                        : new Seg { Label = L("Otra build sugerida", "Next suggested build"), Big = L("OTRA BUILD", "NEXT BUILD"), Glyph = "⇄", Leaf = true,
+                                          Go = () => { Hide(); ov.NextBuild(); } });
+                if (ov.CanUndoClear)
+                    lv.Segs.Add(new Seg { Label = L("Deshacer el borrado", "Undo the clear"), Big = L("DESHACER", "UNDO"), Glyph = "↶",
+                                          Go = () => { Hide(); ov.UndoClear(); } });
+                else if (ov.st.CanUndo)
                     lv.Segs.Add(new Seg { Label = L("Deshacer lo último", "Undo the last change"), Big = L("DESHACER", "UNDO"), Glyph = "↶",
                                           Go = () => { Hide(); ov.BoxDo(L("deshacer", "undo"), () => { string w = ov.st.Apply("deshacer"); int i = w.IndexOf(" · "); return i > 0 ? w.Substring(0, i) : w; }); } });
                 return lv;
@@ -7250,6 +8033,29 @@ Puerto=8765
             }
 
             // los de una letra (16 por rueda; si hay mas, la ultima seccion es "mas")
+            // con los 4 perks (o 2 addons) ya anotados: en vez de rechazarlo, se elige cual sale
+            void PickOrSwap(Entry en)
+            {
+                var st = ov.st;
+                if ((en.K == Kind.Perk || en.K == Kind.Addon) && !st.Current().Contains(en))
+                {
+                    var list = en.K == Kind.Perk ? st.Perks : st.Addons;
+                    if (list.Count >= (en.K == Kind.Perk ? 4 : 2)) { Push(SwapLevel(en, list.ToList())); return; }
+                }
+                Hide();
+                ov.WheelPick(en);
+            }
+            Level SwapLevel(Entry neu, List<Entry> list)
+            {
+                var lv = new Level { Title = L("¿CUÁL SALE?", "WHICH ONE GOES?"), Swap = neu };
+                foreach (var o in list)
+                {
+                    var old = o;
+                    lv.Segs.Add(new Seg { Label = L("Sale ", "Out: ") + ov.DName(old) + L("\nentra ", "\nin: ") + ov.DName(neu), E = old, Marked = true,
+                                          Go = () => { Hide(); ov.WheelSwap(old, neu); } });
+                }
+                return lv;
+            }
             Level Items(string title, List<Entry> items, int page, HashSet<Entry> top = null)
             {
                 int per = items.Count <= 26 ? 26 : 16; // hasta 24 (los addons de un killer, las ofrendas secretas) entran en una sola rueda
@@ -7261,7 +8067,7 @@ Puerto=8765
                     var en = e;
                     bool on = en == ov.st.Killer || ov.st.Perks.Contains(en) || ov.st.Addons.Contains(en) || en == ov.st.Offering || (en.Action != null && en.Action == "mapa:" + ov.mapShown);
                     lv.Segs.Add(new Seg { Label = ov.DName(en), E = en, Marked = on, Group = top != null ? (top.Contains(en) ? 0 : 1) : OffGroup(en),
-                                          Go = () => { Hide(); ov.WheelPick(en); } }); // elegido: se cierra
+                                          Go = () => PickOrSwap(en) }); // elegido: se cierra (o, con la lista llena, se elige cual sale)
                 }
                 if (more)
                 {
@@ -7362,6 +8168,39 @@ Puerto=8765
                 using (var p = new Pen(Color.FromArgb(90, 84, 88), 2f)) g.DrawEllipse(p, outer);
             }
             // una porcion (hov: cual esta marcada, o -1)
+            // centro de "cual sale": sin apuntar, lo que entra; apuntando, el que sale tachado -> el que entra
+            void DrawSwapCenter(Graphics g, float c, List<Seg> segs)
+            {
+                var neu = Cur.Swap;
+                var ni = ov.GetIcon(neu.Icon);
+                var white = Color.FromArgb(235, 230, 225);
+                const TextFormatFlags cf = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
+                if (hover >= 0 && hover < segs.Count && segs[hover].E != null)
+                {
+                    var oi = ov.GetIcon(segs[hover].E.Icon);
+                    float s = 50, ox = c - 62, nx = c + 12, iy = c - 68;
+                    if (oi != null)
+                    {
+                        var cm = new System.Drawing.Imaging.ColorMatrix { Matrix33 = 0.45f };
+                        using (var ia = new System.Drawing.Imaging.ImageAttributes())
+                        {
+                            ia.SetColorMatrix(cm);
+                            g.DrawImage(oi, new Rectangle((int)ox, (int)iy, (int)s, (int)s), 0, 0, oi.Width, oi.Height, GraphicsUnit.Pixel, ia);
+                        }
+                    }
+                    using (var p = new Pen(Color.FromArgb(230, 50, 60), 5f)) { g.DrawLine(p, ox + 8, iy + 8, ox + s - 8, iy + s - 8); g.DrawLine(p, ox + s - 8, iy + 8, ox + 8, iy + s - 8); }
+                    if (ni != null) g.DrawImage(ni, nx, iy, s, s);
+                    TextRenderer.DrawText(g, "→", Dbd.Head(14f), new Rectangle((int)(ox + s - 4), (int)iy, (int)(nx - ox - s + 8), (int)s), white, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
+                    TextRenderer.DrawText(g, L("sale ", "out: ") + ov.DName(segs[hover].E), Dbd.Cond(10.5f), new Rectangle((int)(c - Rin + 12), (int)(c - 15), 2 * Rin - 24, 18), Color.FromArgb(240, 120, 120), cf);
+                    TextRenderer.DrawText(g, L("entra ", "in: ") + ov.DName(neu), Dbd.Cond(10.5f), new Rectangle((int)(c - Rin + 12), (int)(c + 3), 2 * Rin - 24, 18), Color.FromArgb(150, 220, 150), cf);
+                }
+                else
+                {
+                    if (ni != null) g.DrawImage(ni, c - 25, c - 70, 50, 50);
+                    TextRenderer.DrawText(g, L("entra ", "in: ") + ov.DName(neu), Dbd.Cond(10.5f), new Rectangle((int)(c - Rin + 12), (int)(c - 17), 2 * Rin - 24, 18), Color.FromArgb(150, 220, 150), cf);
+                    TextRenderer.DrawText(g, Cur.Title, Dbd.Head(12f), new Rectangle((int)(c - Rin + 12), (int)(c + 2), 2 * Rin - 24, 22), white, cf);
+                }
+            }
             void DrawSeg(Graphics g, int i, int hov, List<Seg> segs, int n, float per, float c, RectangleF outer, RectangleF inner)
             {
                     float a0 = -90 - per / 2 + i * per;
@@ -7519,13 +8358,17 @@ Puerto=8765
                 // centro: lo que esta bajo el mouse (o el titulo) y como volver
                 using (var b = new SolidBrush(hover == -2 ? Color.FromArgb(40, 30, 32) : Color.FromArgb(12, 11, 12))) g.FillEllipse(b, inner);
                 using (var p = new Pen(Color.FromArgb(90, 84, 88), 2f)) g.DrawEllipse(p, inner);
-                string label = hover >= 0 && hover < segs.Count ? segs[hover].Label : Cur.Title;
-                var lr = new Rectangle((int)(c - Rin + 10), (int)(c - 34), 2 * Rin - 20, 52);
-                TextRenderer.DrawText(g, label, Dbd.Head(12f), lr, Color.FromArgb(235, 230, 225), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+                if (Cur.Swap != null) DrawSwapCenter(g, c, segs);
+                else
+                {
+                    string label = hover >= 0 && hover < segs.Count ? segs[hover].Label : Cur.Title;
+                    var lr = new Rectangle((int)(c - Rin + 10), (int)(c - 34), 2 * Rin - 20, 52);
+                    TextRenderer.DrawText(g, label, Dbd.Head(12f), lr, Color.FromArgb(235, 230, 225), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+                }
                 // debajo de la rueda: que hace (por ahora, las ofrendas)
                 DescEsNow = ov.DescEs;
                 StatusMode = ov.cfg.Get("EstadosRueda", "ambos");
-                string brief = hover >= 0 && hover < segs.Count && ov.cfg.Get("RuedaDescripcion", "si") != "no" ? BriefOf(segs[hover].E) : null;
+                string brief = Cur.Swap == null && hover >= 0 && hover < segs.Count && ov.cfg.Get("RuedaDescripcion", "si") != "no" ? BriefOf(segs[hover].E) : null;
                 if (brief != null)
                 {
                     // los numeros ("+20 %", "(10 s)", "6 m") resaltados: se leen de un vistazo
@@ -7583,7 +8426,7 @@ Puerto=8765
                         }
                     }
                 }
-                string sub = Gesture ? (ClickMode ? L("clic: elegir · derecho: atrás", "click: pick · right: back") : L("empujá: entrar · soltá: elegir", "push: enter · release: pick"))
+                string sub = Pad ? ov.PadText(ov.PadMask("PadElegir", "R2")) + L(": elegir · al centro: atrás", ": pick · centered: back") : Gesture ? (ClickMode ? L("clic: elegir · derecho: atrás", "click: pick · right: back") : L("empujá: entrar · soltá: elegir", "push: enter · release: pick"))
                            : stack.Count > 1 ? L("clic aquí o derecho: atrás", "click here or right: back") : L("clic derecho: cerrar", "right-click: close");
                 TextRenderer.DrawText(g, sub, Dbd.Cond(8.5f), new Rectangle((int)(c - Rin + 8), (int)(c + 22), 2 * Rin - 16, 20), Color.FromArgb(140, 130, 128), TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
             }
@@ -7727,7 +8570,7 @@ Puerto=8765
             }) { IsBackground = true, Name = "teclas" }.Start();
         }
 
-        bool IsOurVk(int v) { return v != 0 && (v == vkType || v == vkTalk || v == vkClear || v == vkHelp || v == vkNames || v == vkWheel || (v == 0x1B && wheelOpen)); }
+        bool IsOurVk(int v) { return v != 0 && (v == vkType || v == vkTalk || v == vkClear || v == vkHelp || v == vkNames || v == vkWheel || v == vkUndo || v == vkBuild || (v == 0x1B && wheelOpen)); }
 
         IntPtr WatchProc(int nCode, IntPtr wParam, IntPtr lParam)
         {
@@ -7908,16 +8751,7 @@ Puerto=8765
                         Feedback(L("mantené ", "hold ") + ClearKeyName + L(" para borrar todo…", " to clear everything…"), Color.FromArgb(240, 170, 80), 1500);
                     }
                 }
-                if (!c && clearDown && !clearFired && undoSnap != null && now - undoUntil < 0)
-                {
-                    var before = st.Snapshot();
-                    st.Restore(undoSnap);
-                    undoSnap = null;
-                    UnrecordLast();
-                    PublishDiff(before);
-                    Changed(L("borrado deshecho", "clear undone"));
-                    DebugEvent("borrado deshecho con tecla");
-                }
+                if (!c && clearDown && !clearFired && CanUndoClear) UndoClear();
                 clearDown = c;
             }
             if (vkHelp != 0)
@@ -7933,6 +8767,19 @@ Puerto=8765
             }
             // ESC con la rueda abierta: se cierra (no se bloquea: si estas en el menu del juego, ESC tambien lo cierra)
             if (wheelOpen && (GetAsyncKeyState(0x1B) & 0x8000) != 0 && wheelWin != null && !wheelWin.IsDisposed) wheelWin.Hide();
+            // deshacer: en cualquier momento (tambien jugando); como las demas teclas, solo con DBD al frente si asi esta configurado
+            if (vkUndo != 0)
+            {
+                bool u = HotKey(vkUndo) && (undoDown || ModsMatch(vkUndo, undoSh, undoCt, undoAl));
+                if (u && !undoDown && !(typeBox != null && typeBox.Visible)) UndoLast();
+                undoDown = u;
+            }
+            if (vkBuild != 0)
+            {
+                bool b = HotKey(vkBuild) && (buildDown || ModsMatch(vkBuild, buildSh, buildCt, buildAl));
+                if (b && !buildDown && !(typeBox != null && typeBox.Visible)) NextBuild();
+                buildDown = b;
+            }
             if (vkWheel != 0)
             {
                 bool c = HotKey(vkWheel) && (wheelDown || ModsMatch(vkWheel, wheelSh, wheelCt, wheelAl));
@@ -7965,6 +8812,18 @@ Puerto=8765
 
         bool HasAnything() { return st.Killer != null || st.Perks.Count > 0 || st.Addons.Count > 0 || st.Offering != null; }
 
+        bool CanUndoClear { get { return undoSnap != null && Environment.TickCount - undoUntil < 0; } }
+        void UndoClear()
+        {
+            if (!CanUndoClear) return;
+            var before = st.Snapshot();
+            st.Restore(undoSnap);
+            undoSnap = null;
+            UnrecordLast();
+            PublishDiff(before);
+            Changed(L("borrado deshecho", "clear undone"));
+            DebugEvent("borrado deshecho");
+        }
         void ClearWithUndo()
         {
             if (!HasAnything()) { Feedback(L("la lista ya está vacía", "the list is already empty"), Color.Silver, 2000); return; }
@@ -8131,7 +8990,7 @@ Puerto=8765
         }
 
         // ---- layout compacto: perks en rombo (como el HUD de superviviente), addons al costado
-        class Item { public Rectangle R; public Entry E; public bool Slot; public int Num; }
+        class Item { public Rectangle R; public Entry E; public bool Slot, Ghost; public int Num; }
         class TextItem { public string T; public Font F; public Color C; public Point P; public int W; public bool Block, Center; }
         List<Item> items = new List<Item>();
         List<TextItem> texts = new List<TextItem>();
@@ -8169,7 +9028,9 @@ Puerto=8765
             var flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
             Func<string, Font, Size> M = (t, f) => TextRenderer.MeasureText(t, f, new Size(int.MaxValue, int.MaxValue), flags);
             Color dim = Color.FromArgb(140, 140, 150);
-            bool any = st.Perks.Count > 0 || st.Addons.Count > 0 || st.Offering != null; // el killer no se muestra
+            LoadBuilds();
+            var ghosts = GhostPerks(); int gi = 0;
+            bool any = st.Perks.Count > 0 || st.Addons.Count > 0 || st.Offering != null || ghosts.Count > 0 || ShowBuildButtons; // el killer no se muestra
             int pad = 8, D = PerkSize, o = D / 2 + 2, A = (int)(D * 0.62);
             int blockW = 0, y = pad;
 
@@ -8240,9 +9101,13 @@ Puerto=8765
                 }
                 var centers = new[] { new Point(ccx, ccy - o), new Point(ccx - o, ccy), new Point(ccx + o, ccy), new Point(ccx, ccy + o) };
                 for (int i = 0; i < 4; i++)
-                    items.Add(new Item { R = new Rectangle(centers[i].X - D / 2, centers[i].Y - D / 2, D, D), E = i < st.Perks.Count ? st.Perks[i] : null, Slot = true });
+                {
+                    Entry pe = i < st.Perks.Count ? st.Perks[i] : null; bool gh = false;
+                    if (pe == null && gi < ghosts.Count) { pe = ghosts[gi++]; gh = true; } // lugar libre: perk de la build sugerida
+                    items.Add(new Item { R = new Rectangle(centers[i].X - D / 2, centers[i].Y - D / 2, D, D), E = pe, Slot = true, Ghost = gh });
+                }
                 blockW = x + clusterW - pad;
-                y = top + blockH + 6;
+                y = top + blockH + (ShowBuildButtons ? 14 : 6); // lugar para los puntitos de las builds
             }
             int blockItems = items.Count, blockTexts = texts.Count;
 
@@ -8337,7 +9202,18 @@ Puerto=8765
             int mx = cfg.GetInt("MargenX", 30), my = cfg.GetInt("MargenY", 140);
             int wx = right ? scr.Right - mx - size.Width : scr.Left + mx;
             int wy = pos.Contains("abajo") ? scr.Bottom - my - size.Height : scr.Top + my;
-            Bounds = new Rectangle(wx, wy, size.Width, size.Height);
+            var nb = new Rectangle(wx, wy, size.Width, size.Height);
+            if (nb != Bounds && IsHandleCreated)
+            {
+                // moverse y redibujarse juntos: sin esto, por un instante se ve el dibujo viejo corrido (al aparecer un mensaje ancho)
+                SetWindowPos(Handle, IntPtr.Zero, nb.X, nb.Y, nb.Width, nb.Height, 0x0004 | 0x0010 | 0x0100); // NOZORDER | NOACTIVATE | NOCOPYBITS
+                if (Bounds != nb) Bounds = nb;
+                if (typeBox != null && typeBox.Visible) PlaceTypeBox();
+                Invalidate();
+                if (Visible) Update();
+                return;
+            }
+            Bounds = nb;
             if (typeBox != null && typeBox.Visible) PlaceTypeBox();
             Invalidate();
         }
@@ -8367,9 +9243,60 @@ Puerto=8765
             }
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            {
+                var rb = RotateButton();
+                if (!rb.IsEmpty)
+                {
+                    // boton "siguiente build" con el estilo de los perks: triangulo oscuro, borde lila, ›› color hueso; con el cursor encima, borde rojo
+                    var tri = new[] { new PointF(rb.Right, rb.Bottom), new PointF(rb.Right, rb.Y), new PointF(rb.X, rb.Bottom) };
+                    using (var b = new SolidBrush(rotHover ? Color.FromArgb(62, 50, 62) : Color.FromArgb(48, 44, 60))) g.FillPolygon(b, tri);
+                    var tin = new[] { new PointF(rb.Right - 4, rb.Bottom - 4), new PointF(rb.Right - 4, rb.Y + 9.7f), new PointF(rb.X + 9.7f, rb.Bottom - 4) };
+                    using (var p = new Pen(Color.FromArgb(70, 120, 110, 140), 1f)) g.DrawPolygon(p, tin);   // filete interior, como el marco de los perks
+                    using (var p = new Pen(rotHover ? Color.FromArgb(200, 40, 50) : Color.FromArgb(120, 110, 140), rotHover ? 2f : 1.4f) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round }) g.DrawPolygon(p, tri);
+                    // ›› en el centro del triangulo
+                    // centro: el punto a igual distancia de los tres lados (en un triangulo rectangulo isosceles, 0,293 del cateto)
+                    float gx = rb.Right - rb.Width * 0.2929f, gy = rb.Bottom - rb.Height * 0.2929f, cs = rb.Width * 0.12f;
+                    using (var p = new Pen(rotHover ? Color.White : Color.FromArgb(214, 204, 186), Math.Max(2f, rb.Width / 20f)) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+                        for (int c2 = 0; c2 < 2; c2++)
+                        {
+                            float ox = gx - cs * 0.6f + c2 * cs * 1.2f;   // los dos chevrones juntos quedan centrados en gx
+                            g.DrawLines(p, new[] { new PointF(ox - cs * 0.5f, gy - cs), new PointF(ox + cs * 0.5f, gy), new PointF(ox - cs * 0.5f, gy + cs) });
+                        }
+                }
+                var dots = BuildDots();
+                int cb = buildsHidden ? dots.Count - 1 : CurBuild();
+                for (int k = 0; k < dots.Count; k++)
+                {
+                    bool on = k == cb, hideDot = k == dots.Count - 1;
+                    Color dc = on ? (hideDot ? Color.FromArgb(220, 70, 80) : Color.FromArgb(150, 200, 255)) : Color.FromArgb(80, 85, 100);
+                    if (hideDot)
+                        using (var p = new Pen(dc, 1.6f)) { g.DrawLine(p, dots[k].X - 2.5f, dots[k].Y - 2.5f, dots[k].X + 2.5f, dots[k].Y + 2.5f); g.DrawLine(p, dots[k].X - 2.5f, dots[k].Y + 2.5f, dots[k].X + 2.5f, dots[k].Y - 2.5f); }
+                    else using (var b = new SolidBrush(dc)) g.FillPolygon(b, new[] { new PointF(dots[k].X, dots[k].Y - 3.5f), new PointF(dots[k].X + 3.5f, dots[k].Y), new PointF(dots[k].X, dots[k].Y + 3.5f), new PointF(dots[k].X - 3.5f, dots[k].Y) }); // rombitos
+                }
+            }
             foreach (var it in items)
             {
                 if (it.E != null) DrawIcon(g, it.E, it.R);
+                if (it.Ghost)
+                {
+                    var r = it.R;
+                    var dp = new[] { new Point(r.X + r.Width / 2, r.Y), new Point(r.Right, r.Y + r.Height / 2), new Point(r.X + r.Width / 2, r.Bottom), new Point(r.X, r.Y + r.Height / 2) };
+                    using (var b = new SolidBrush(Color.FromArgb(150, 14, 14, 18))) g.FillPolygon(b, dp);
+                    using (var p = new Pen(Color.FromArgb(200, 120, 180, 240), 1.5f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawPolygon(p, dp);
+                }
+                if (it.E != null && it.E == holdE && holdShown)
+                {
+                    var r = it.R;
+                    var shape = it.Slot
+                        ? new[] { new PointF(r.X + r.Width / 2f, r.Y), new PointF(r.Right, r.Y + r.Height / 2f), new PointF(r.X + r.Width / 2f, r.Bottom), new PointF(r.X, r.Y + r.Height / 2f) }
+                        : new[] { new PointF(r.X, r.Y), new PointF(r.Right, r.Y), new PointF(r.Right, r.Bottom), new PointF(r.X, r.Bottom) };
+                    using (var b = new SolidBrush(Color.FromArgb(90, 120, 20, 28))) g.FillPolygon(b, shape);   // oscurecido
+                    var filled = BelowLine(shape, r.Bottom - r.Height * holdP);                                   // lo que ya se lleno (de abajo hacia arriba)
+                    if (filled.Length >= 3) using (var b = new SolidBrush(Color.FromArgb(185, 215, 30, 42))) g.FillPolygon(b, filled);
+                    using (var p = new Pen(Color.FromArgb(230, 60, 70), 2f)) g.DrawPolygon(p, shape);
+                    using (var f = new Font("Segoe UI", Math.Max(10, r.Width / 3), FontStyle.Bold, GraphicsUnit.Pixel))
+                        TextRenderer.DrawText(g, "✖", f, r, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                }
                 if (it.Num > 0)
                 {
                     // numero del candidato (abajo a la izquierda)

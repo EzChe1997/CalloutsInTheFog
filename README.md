@@ -35,6 +35,8 @@ The app updates itself from here and only accepts versions signed by the project
 - Callout maps (clock system): images by **Lethia**, from [hens333.com/callouts](https://hens333.com/callouts)
   (Zexov's version of the original by Broosley and Evo, from Hens' Discord). The app downloads them from that page when
   you pick a map; they are not included in this repository.
+- Suggested killer builds (optional): from [hens333.com/killerbuilds](https://hens333.com/killerbuilds), by **Hens**. The app
+  downloads only the page of the killer you note, at most every 3 days.
 - Game data: [dbd.tricky.lol](https://dbd.tricky.lol). Icons: [DBD wiki](https://deadbydaylight.wiki.gg).
 - Voice: [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
 
@@ -65,5 +67,7 @@ firmadas.
 
 **Créditos**: planos de **Lethia** ([hens333.com/callouts](https://hens333.com/callouts), versión de Zexov sobre la
 original de Broosley y Evo, del Discord de Hens); la app los baja de esa página y no están en este repositorio.
+Builds sugeridas (opcional): de **Hens** ([hens333.com/killerbuilds](https://hens333.com/killerbuilds)); la app baja solo la página del
+killer anotado, como mucho cada 3 días.
 Datos: [dbd.tricky.lol](https://dbd.tricky.lol). Íconos: [wiki de DBD](https://deadbydaylight.wiki.gg).
 Voz: [whisper.cpp](https://github.com/ggerganov/whisper.cpp).
