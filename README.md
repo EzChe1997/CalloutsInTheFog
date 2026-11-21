@@ -10,6 +10,8 @@ and they stay on screen with their icons. **Everyone in your group sees the same
 automatically, or anyone (solo queue teammates, Epic players) with a room code.
 
 - **Type it**: Shift+T, a few letters ("noed", "pain res"), Enter. Search add-ons by what they do: "addon 15 slow".
+- **Middle click** reads the screen with Windows' built-in text reader: the map name at the start (bottom-left) loads
+  that map, and a status alert naming a perk (top-right, e.g. "HEX: NO ONE ESCAPES DEATH") adds that perk.
 - **Or say it** (optional): hold Shift+V and say "he has Pain Resonance and Deadlock". Speech recognition runs on your PC
   with [whisper.cpp](https://github.com/ggerganov/whisper.cpp), no internet.
 - **Maps**: type "map coal" and a callout map shows up (for the whole room).
@@ -53,6 +55,9 @@ los ves y quedan en pantalla con sus íconos. **Todo el grupo ve la misma lista*
 automáticamente, o cualquiera (randoms, jugadores de Epic) con un código de sala.
 
 - **Escribiendo**: Shift+T, unas letras ("noed", "pain res"), Enter. Addons por lo que hacen: "addon 15 lento".
+- **Clic del medio**: lee la pantalla con el lector de texto de Windows. El nombre del mapa al empezar (abajo a la
+  izquierda) carga ese mapa, y un aviso de estado que nombra un perk (arriba a la derecha, ej. "HEX: NO ONE ESCAPES
+  DEATH") anota ese perk.
 - **O hablando** (opcional): mantené Shift+V y decí "tiene Pain Resonance y Deadlock". El reconocimiento de voz corre en
   tu PC con [whisper.cpp](https://github.com/ggerganov/whisper.cpp), sin internet.
 - **Mapas**: escribí "mapa coal" y aparece el plano con callouts (para toda la sala).

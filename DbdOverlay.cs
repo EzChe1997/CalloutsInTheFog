@@ -857,6 +857,194 @@ Puerto=8765
         }
     }
 
+    // ------------------------------------------------------------ leer el nombre del mapa de la pantalla
+    // Al empezar la partida el juego muestra abajo a la izquierda el nombre del mapa (y el reino debajo).
+    // Con un clic (por defecto el del medio) la app copia SOLO ese pedazo de pantalla y lo lee con el OCR que trae
+    // Windows 10/11 (sin IA ni descargas). El compilador de la app (C# 5) no puede referenciar WinRT, asi que se usa por reflexion.
+    static class WinOcr
+    {
+        static Type T(string n, string asm) { return Type.GetType(n + ", " + asm + ", ContentType=WindowsRuntime", false); }
+        const string RtAsm = ", System.Runtime.WindowsRuntime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089";
+        static System.Reflection.MethodInfo asTask, asBuffer;
+        static object engine; static bool tried;
+
+        static object Await(object op, Type result)
+        {
+            var task = (System.Threading.Tasks.Task)asTask.MakeGenericMethod(result).Invoke(null, new[] { op });
+            task.Wait();
+            return task.GetType().GetProperty("Result").GetValue(task);
+        }
+
+        // lineas de texto de la imagen; null si este Windows no tiene OCR
+        public static string[] Read(Bitmap bmp)
+        {
+            var tEng = T("Windows.Media.Ocr.OcrEngine", "Windows.Foundation");
+            var tSb = T("Windows.Graphics.Imaging.SoftwareBitmap", "Windows.Graphics");
+            var tFmt = T("Windows.Graphics.Imaging.BitmapPixelFormat", "Windows.Graphics");
+            var tRes = T("Windows.Media.Ocr.OcrResult", "Windows.Foundation");
+            if (tEng == null || tSb == null || tFmt == null || tRes == null) return null;
+            if (!tried)
+            {
+                tried = true;
+                asTask = Type.GetType("System.WindowsRuntimeSystemExtensions" + RtAsm).GetMethods()
+                    .First(m => m.Name == "AsTask" && m.IsGenericMethod && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType.Name == "IAsyncOperation`1");
+                asBuffer = Type.GetType("System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions" + RtAsm).GetMethods()
+                    .First(m => m.Name == "AsBuffer" && m.GetParameters().Length == 1);
+                engine = tEng.GetMethod("TryCreateFromUserProfileLanguages").Invoke(null, null);
+                if (engine == null)
+                {
+                    // ningun idioma de Windows tiene OCR instalado: probar ingles (los nombres de mapa estan en ingles)
+                    var tLang = T("Windows.Globalization.Language", "Windows.Foundation");
+                    if (tLang != null) try { engine = tEng.GetMethod("TryCreateFromLanguage").Invoke(null, new[] { Activator.CreateInstance(tLang, "en-US") }); } catch { }
+                }
+            }
+            if (engine == null) return null;
+            var d = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var px = new byte[bmp.Width * bmp.Height * 4];
+            for (int y = 0; y < bmp.Height; y++) Marshal.Copy(d.Scan0 + y * d.Stride, px, y * bmp.Width * 4, bmp.Width * 4);
+            bmp.UnlockBits(d);
+            var buf = asBuffer.Invoke(null, new object[] { px });
+            var sb = tSb.GetMethods().First(m => m.Name == "CreateCopyFromBuffer" && m.GetParameters().Length == 4)
+                        .Invoke(null, new object[] { buf, Enum.ToObject(tFmt, 87 /* Bgra8 */), bmp.Width, bmp.Height });
+            try
+            {
+                var res = Await(tEng.GetMethod("RecognizeAsync").Invoke(engine, new[] { sb }), tRes);
+                var lines = (System.Collections.IEnumerable)tRes.GetProperty("Lines").GetValue(res);
+                return lines.Cast<object>().Select(l => (string)l.GetType().GetProperty("Text").GetValue(l)).ToArray();
+            }
+            finally { var disp = sb as IDisposable; if (disp != null) disp.Dispose(); }
+        }
+    }
+
+    static class MapReader
+    {
+        // zona donde aparece el nombre: abajo a la izquierda (proporcional, sirve para cualquier resolucion)
+        public static Rectangle Region(Rectangle game)
+        {
+            return new Rectangle(game.X, game.Y + (int)(game.Height * 0.72), (int)(game.Width * 0.45), (int)(game.Height * 0.24));
+        }
+
+        // agrandada al doble (a la letra fina del juego le sienta mejor) si es chica
+        public static Bitmap Prepare(Bitmap crop)
+        {
+            if (crop.Height >= 400) return new Bitmap(crop);
+            var c = new Bitmap(crop.Width * 2, crop.Height * 2);
+            using (var g = Graphics.FromImage(c))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.DrawImage(crop, new Rectangle(0, 0, c.Width, c.Height), new Rectangle(0, 0, crop.Width, crop.Height), GraphicsUnit.Pixel);
+            }
+            return c;
+        }
+
+        // avisos de estado (arriba a la derecha): "EXPOSED" y debajo, chico y semitransparente, lo que lo causa ("HEX: NO ONE ESCAPES DEATH")
+        public static Rectangle StatusRegion(Rectangle game)
+        {
+            return new Rectangle(game.X + (int)(game.Width * 0.55), game.Y + (int)(game.Height * 0.08), (int)(game.Width * 0.45), (int)(game.Height * 0.42));
+        }
+
+        // x3 en grises con mas contraste: la letra semitransparente sobre fondo claro se lee mejor (el OCR se pasa con las dos versiones)
+        public static Bitmap Contrast(Bitmap crop)
+        {
+            var c = new Bitmap(crop.Width * 3, crop.Height * 3, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(c))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.DrawImage(crop, new Rectangle(0, 0, c.Width, c.Height), new Rectangle(0, 0, crop.Width, crop.Height), GraphicsUnit.Pixel);
+            }
+            var d = c.LockBits(new Rectangle(0, 0, c.Width, c.Height), System.Drawing.Imaging.ImageLockMode.ReadWrite, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var px = new byte[d.Stride * c.Height];
+            Marshal.Copy(d.Scan0, px, 0, px.Length);
+            for (int i = 0; i < px.Length; i += 4)
+            {
+                int v = (px[i] * 114 + px[i + 1] * 587 + px[i + 2] * 299) / 1000;
+                v = Math.Max(0, Math.Min(255, (v - 120) * 3));
+                px[i] = px[i + 1] = px[i + 2] = (byte)v;
+            }
+            Marshal.Copy(px, 0, d.Scan0, px.Length);
+            c.UnlockBits(d);
+            return c;
+        }
+
+        // perks (y addons) nombrados en el texto leido. El OCR casi nunca lo lee perfecto ("No ONE ESCAPES DEATÀ"), asi que
+        // se cuenta cuanto del nombre aparece palabra por palabra (con tolerancia), con y sin "Hex:"/"Scourge Hook:"/"Boon:".
+        public static List<Tuple<Entry, double>> MatchSources(Catalog cat, IEnumerable<string> lines, Entry killer, out string why)
+        {
+            var ls = lines.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
+            var texts = new List<string>(ls);
+            for (int i = 0; i + 1 < ls.Count; i++) texts.Add(ls[i] + " " + ls[i + 1]);
+            var tw = texts.Select(t => Txt.Norm(t).Split(' ').Where(w => w.Length >= 2).ToArray()).Where(w => w.Length > 0).ToList();
+            var cands = cat.Perks.Concat(killer != null ? cat.Addons.Where(a => a.Killer == killer.Name) : cat.Addons);
+            var found = new Dictionary<Entry, double>();
+            string bestWhy = ""; double bestAny = 0;
+            foreach (var e in cands)
+            {
+                foreach (var name in new[] { e.Name, e.NameEs })
+                {
+                    if (string.IsNullOrEmpty(name)) continue;
+                    string full = Txt.Norm(name);
+                    string bare = Regex.Replace(full, @"^(hex|scourge hook|boon|maleficio|gancho de castigo|bendicion)\s+", "");
+                    foreach (var key in full == bare ? new[] { full } : new[] { full, bare })
+                    {
+                        var kw = key.Split(' ').Where(w => w.Length > 0).ToArray();
+                        int total = kw.Sum(w => w.Length);
+                        foreach (var words in tw)
+                        {
+                            int cov = 0, n = 0;
+                            foreach (var k in kw)
+                                if (words.Any(w => k.Length <= 3 ? w == k : Txt.Ratio(k, w) >= 0.75)) { cov += k.Length; n++; }
+                            double s = (double)cov / total;
+                            bool ok = kw.Length == 1 ? words.Length <= 2 && words.Any(w => Txt.Ratio(kw[0], w) >= 0.85) : n >= 2 && s >= 0.7;
+                            if (s > bestAny) { bestAny = s; bestWhy = e.Name + " " + s.ToString("0.00"); }
+                            if (!ok) continue;
+                            double prev;
+                            if (!found.TryGetValue(e, out prev) || s > prev) found[e] = s;
+                        }
+                    }
+                }
+            }
+            why = found.Count > 0 ? string.Join(", ", found.Select(kv => kv.Key.Name + " " + kv.Value.ToString("0.00"))) : "nada (mejor: " + (bestWhy.Length > 0 ? bestWhy : "-") + ")";
+            return found.OrderByDescending(kv => kv.Value).Select(kv => Tuple.Create(kv.Key, kv.Value)).ToList();
+        }
+
+        // el OCR a veces lee "II" como "Il", "ll" u "11"
+        static string FixRoman(string n)
+        {
+            var w = n.Split(' ');
+            for (int i = 0; i < w.Length; i++)
+                if (Regex.IsMatch(w[i], "^[il1]{2,3}$") || (i == w.Length - 1 && i > 0 && Regex.IsMatch(w[i], "^[il1]$")))
+                    w[i] = new string('i', w[i].Length);
+            return string.Join(" ", w);
+        }
+
+        // el mapa cuyo nombre aparece en el texto leido (o null). why: puntaje, para el log
+        public static string Match(Catalog cat, string[] lines, out string why)
+        {
+            why = "";
+            if (lines == null || lines.Length == 0) return null;
+            var texts = new List<string>();
+            for (int i = 0; i < lines.Length; i++)
+            {
+                texts.Add(lines[i]);
+                if (i + 1 < lines.Length) texts.Add(lines[i] + " " + lines[i + 1]); // nombre largo partido en dos renglones
+            }
+            Entry best = null; double bestS = 0;
+            foreach (var t in texts)
+            {
+                string n = FixRoman(Txt.Norm(t));
+                if (n.Length < 3) continue;
+                foreach (var e in cat.Maps)
+                    foreach (var k in e.Keys)
+                    {
+                        double s = k.N == n ? 1.01 : Txt.Ratio(n, k.N); // lo exacto gana (Family Residence no es Family Residence II)
+                        if (s > bestS) { bestS = s; best = e; }
+                    }
+            }
+            why = best == null ? "nada" : best.Name + " " + Math.Min(bestS, 1).ToString("0.00");
+            return best != null && bestS >= 0.85 ? best.Name : null;
+        }
+    }
+
     // ------------------------------------------------------------ estado + interpretacion
     class State
     {
@@ -2721,7 +2909,7 @@ Puerto=8765
     static class Updater
     {
         // publicar.ps1 sube este numero en cada version
-        public const int AppVersion = 45;
+        public const int AppVersion = 46;
         public const string Base = "https://raw.githubusercontent.com/EzChe1997/CalloutsInTheFog/main/";
         // solo se aceptan versiones firmadas con la clave privada (que queda en la PC de quien publica)
         const string PublicKey = "<RSAKeyValue><Modulus>qWTK5n2m/nN/lqDh5zLLW1oiHJdRe/cC7tMzyMZCtKGh8dYbyKOvwDfQaNFVmqniOG9pYfP38o+QCnkjeaone7gXnt4H6M6DjB7F+ECvTBBH09TbDrrHGUKWNQryiwG0IeS0US8/iQfzOLiqeDamsyCbf3n1CHwVjOcK3G2Dhv6A0cX/vl3R1jLUAhTk5lfxzSF58la4VbGJsAEWH/943Lmy+BYj7pAVaPMkNy+1FiUmyejlWIIEBAn60CLhFY0jtyWVvyUt2wEqd3B7oKDgCRKGGEegmLp0n7yF3sHxXAfpyQd7VbrY/Tn5Hl6VybQ+1gmiTWFi2KiP1ZzA7fvg/Q==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
@@ -2916,6 +3104,14 @@ Puerto=8765
 
         public string HelpKeyName { get { return cfg.Get("TeclaAyuda", "Shift+H"); } }
         string TypeKeyText { get { return cfg.Get("TeclaEscribir", "Shift+T"); } }
+        string MapOcrKeyText
+        {
+            get
+            {
+                return Regex.Replace(cfg.Get("TeclaMapaFoto", "MButton"), "MButton|XButton1|XButton2", m =>
+                    m.Value == "MButton" ? L("Clic del medio", "Middle click") : m.Value == "XButton1" ? L("Botón lateral 1", "Side button 1") : L("Botón lateral 2", "Side button 2"));
+            }
+        }
 
         // texto, color, es titulo
         List<Tuple<string, Color, bool>> HelpLines()
@@ -2948,6 +3144,7 @@ Puerto=8765
                 A("Keys", head, true);
                 A(ClearKeyName + " (hold 1 s)   clear everything · tap again right after = undo", cmd, false);
                 A(HelpKeyName + " (hold)   this help", cmd, false);
+                if (vkMapOcr != 0) A(MapOcrKeyText + "   reads the screen: the map name (bottom-left, at the start) and perks in the status alerts (top-right)", cmd, false);
                 if (!voice) A("Voice is not installed (optional): Settings → Voice", note, false);
                 A(RoomText() + (room != null ? " · everyone sees the same list" : ""), note, false);
                 A("Settings: double-click the hook icon in the taskbar", note, false);
@@ -2971,6 +3168,7 @@ Puerto=8765
             A("Teclas", head, true);
             A(ClearKeyName + " (mantener 1 s)   borrar todo · un toque después = deshacer", cmd, false);
             A(HelpKeyName + " (mantener)   esta ayuda", cmd, false);
+            if (vkMapOcr != 0) A(MapOcrKeyText + "   lee la pantalla: el mapa (abajo a la izq., al empezar) y los perks de los avisos de estado (arriba a la der.)", cmd, false);
             if (!voice) A("La voz no está instalada (es opcional): Configuración → Voz", note, false);
             A(RoomText() + (room != null ? " · todos ven lo mismo" : ""), note, false);
             A("Configuración: doble clic en el ícono del gancho en la barra de tareas", note, false);
@@ -3398,6 +3596,7 @@ Puerto=8765
             ParseCombo(cfg.Get("TeclaRueda", "Shift+R"), out vkWheel, out wheelSh, out wheelCt, out wheelAl, out tn);
             ParseCombo(cfg.Get("TeclaDeshacer", "Ctrl+Z"), out vkUndo, out undoSh, out undoCt, out undoAl, out tn);
             ParseCombo(cfg.Get("TeclaBuild", "Shift+B"), out vkBuild, out buildSh, out buildCt, out buildAl, out tn);
+            { int v; ParseCombo(cfg.Get("TeclaMapaFoto", "MButton"), out v, out mapOcrSh, out mapOcrCt, out mapOcrAl, out tn); vkMapOcr = v; }
             UpdatePad();
             showNames = Regex.IsMatch(cfg.Get("Nombres", "no"), "^(si|sí|s|yes|true|1)$", RegexOptions.IgnoreCase);
             Lang.Init(cfg.Get("IdiomaApp", "auto"));
@@ -3455,6 +3654,7 @@ Puerto=8765
             topLater = new System.Windows.Forms.Timer { Interval = 1500 };
             topLater.Tick += (s, e) => { topLater.Stop(); TopAll(); };
             StartKeyWatch();
+            StartMouseWatch();
             StartWinEvents();
             UpdateTopGuard();
             HoverTick();
@@ -4282,6 +4482,8 @@ Puerto=8765
             ParseCombo(cfg.Get("TeclaRueda", "Shift+R"), out vkWheel, out wheelSh, out wheelCt, out wheelAl, out n);
             ParseCombo(cfg.Get("TeclaDeshacer", "Ctrl+Z"), out vkUndo, out undoSh, out undoCt, out undoAl, out n);
             ParseCombo(cfg.Get("TeclaBuild", "Shift+B"), out vkBuild, out buildSh, out buildCt, out buildAl, out n);
+            { int v; ParseCombo(cfg.Get("TeclaMapaFoto", "MButton"), out v, out mapOcrSh, out mapOcrCt, out mapOcrAl, out n); vkMapOcr = v; }
+            StartMouseWatch();
             SetTypeKey(cfg.Get("TeclaEscribir", "Shift+T"));
             st.ClearKeyName = cfg.Get("TeclaLimpiar", "Shift+G");
         }
@@ -4296,6 +4498,7 @@ Puerto=8765
             Tuple.Create(L("Rueda (con el menú ESC)", "Wheel (with the ESC menu)"), "TeclaRueda", "Shift+R", true),
             Tuple.Create(L("Deshacer", "Undo"), "TeclaDeshacer", "Ctrl+Z", true),
             Tuple.Create(L("Otra build sugerida", "Next suggested build"), "TeclaBuild", "Shift+B", true),
+            Tuple.Create(L("Leer la pantalla (mapa y perks)", "Read the screen (map and perks)"), "TeclaMapaFoto", "MButton", true),
         };
 
         void AskKey(Tuple<string, string, string, bool> act)
@@ -6850,6 +7053,7 @@ Puerto=8765
         int vkWheel; bool wheelSh, wheelCt, wheelAl, wheelDown;
         int vkUndo; bool undoSh, undoCt, undoAl, undoDown;
         int vkBuild; bool buildSh, buildCt, buildAl, buildDown;
+        volatile int vkMapOcr; bool mapOcrSh, mapOcrCt, mapOcrAl, mapOcrDown, mapOcrBusy;
 
         // ---- builds sugeridas (hens333.com): con el killer anotado, los lugares libres de perks muestran una build, atenuada.
         // Se elige sola la que mas coincide con lo anotado; la tecla (o la rueda) pasa a la siguiente; doble clic anota ese perk.
@@ -8623,7 +8827,171 @@ Puerto=8765
             }) { IsBackground = true, Name = "teclas" }.Start();
         }
 
-        bool IsOurVk(int v) { return v != 0 && (v == vkType || v == vkTalk || v == vkClear || v == vkHelp || v == vkNames || v == vkWheel || v == vkUndo || v == vkBuild || (v == 0x1B && wheelOpen)); }
+        // ---- leer el mapa con un boton del mouse (por defecto el del medio). Windows no avisa los clics sin escuchar
+        // tambien cada movimiento, asi que el gancho va en su propio hilo y solo mira (no se traga nada): el juego recibe
+        // el clic igual. Solo se instala si el atajo es un boton del mouse.
+        IntPtr mouseHook; LowLevelKeyboardProc mouseProc;
+        void StartMouseWatch()
+        {
+            if (mouseHook != IntPtr.Zero || mouseProc != null || !IsMouseVk(vkMapOcr)) return;
+            mouseProc = MouseWatchProc;
+            new Thread(() =>
+            {
+                mouseHook = SetWindowsHookEx(14, mouseProc, GetModuleHandle(null), 0);
+                int err = Marshal.GetLastWin32Error();
+                bool ok = mouseHook != IntPtr.Zero;
+                try { BeginInvoke((Action)(() => DebugEvent(ok ? "mouse: escuchando " + cfg.Get("TeclaMapaFoto", "MButton") + " para leer el mapa" : "mouse: sin gancho (error " + err + "), el clic para leer el mapa no anda"))); } catch { }
+                if (!ok) return;
+                Application.Run();
+            }) { IsBackground = true, Name = "mouse" }.Start();
+        }
+
+        IntPtr MouseWatchProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0)
+            {
+                int msg = (int)wParam, vk = 0;
+                if (msg == 0x207) vk = 4; // WM_MBUTTONDOWN
+                else if (msg == 0x20B) vk = (Marshal.ReadInt32(lParam, 8) >> 16) == 1 ? 5 : 6; // WM_XBUTTONDOWN (laterales)
+                if (vk != 0 && vk == vkMapOcr) try { BeginInvoke((Action)(() => ReadMapFromScreen(false))); } catch { }
+            }
+            return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+        }
+
+        [StructLayout(LayoutKind.Sequential)] struct WinRect { public int L, T, R, B; }
+        [StructLayout(LayoutKind.Sequential)] struct WinPoint { public int X, Y; }
+        [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out WinRect r);
+        [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref WinPoint p);
+
+        [DllImport("user32.dll")] static extern bool SetWindowDisplayAffinity(IntPtr h, uint a);
+
+        // un clic: copia dos rincones del juego y los lee con el OCR de Windows.
+        //  - abajo a la izquierda: el nombre del mapa al empezar -> carga el plano
+        //  - arriba a la derecha: los avisos de estado ("EXPOSED" / "HEX: NO ONE ESCAPES DEATH") -> anota ese perk o addon
+        // Las ventanas de la app se sacan de la captura un instante (si no, la lista tapa los avisos).
+        public void ReadMapFromScreen(bool anyWindow)
+        {
+            if (mapOcrBusy) return;
+            bool dbd = DbdInFront();
+            if (!anyWindow)
+            {
+                if (KeysOnlyInDbd && !dbd) return;
+                if (!ModsMatch(vkMapOcr, mapOcrSh, mapOcrCt, mapOcrAl)) return;
+                if (typeBox != null && typeBox.Visible) return;
+            }
+            Rectangle game = Screen.PrimaryScreen.Bounds;
+            if (dbd)
+            {
+                var h = GetForegroundWindow(); WinRect r; var p = new WinPoint();
+                if (GetClientRect(h, out r) && ClientToScreen(h, ref p) && r.R > 200 && r.B > 200) game = new Rectangle(p.X, p.Y, r.R, r.B);
+            }
+            mapOcrBusy = true;
+            // fuera de la captura (Windows 10 2004+); si no se puede, se esconden por un instante
+            var mine = Application.OpenForms.Cast<Form>().Where(f => f.Visible && !f.IsDisposed).ToList();
+            var hidden = new List<Form>();
+            int excl = 0;
+            foreach (var f in mine)
+            {
+                if (SetWindowDisplayAffinity(f.Handle, 0x11)) excl++;
+                else { f.Hide(); hidden.Add(f); }
+            }
+            var later = new System.Windows.Forms.Timer { Interval = mine.Count > 0 ? 100 : 1 }; // que la pantalla se redibuje sin ellas
+            later.Tick += (s, e) =>
+            {
+                later.Stop(); later.Dispose();
+                Bitmap capMap = null, capStat = null; string capErr = null;
+                try
+                {
+                    var rm = MapReader.Region(game); var rs = MapReader.StatusRegion(game);
+                    capMap = new Bitmap(rm.Width, rm.Height); using (var g = Graphics.FromImage(capMap)) g.CopyFromScreen(rm.Location, Point.Empty, rm.Size);
+                    capStat = new Bitmap(rs.Width, rs.Height); using (var g = Graphics.FromImage(capStat)) g.CopyFromScreen(rs.Location, Point.Empty, rs.Size);
+                }
+                catch (Exception ex) { capErr = ex.Message; }
+                foreach (var f in mine) if (!f.IsDisposed) { if (hidden.Contains(f)) f.Show(); else SetWindowDisplayAffinity(f.Handle, 0); }
+                if (capErr != null)
+                {
+                    mapOcrBusy = false;
+                    if (capMap != null) capMap.Dispose();
+                    if (capStat != null) capStat.Dispose();
+                    DebugEvent("leer pantalla: no pude copiar la pantalla: " + capErr);
+                    return;
+                }
+                string how = mine.Count == 0 ? "" : " (ventanas propias: " + excl + " fuera de la captura" + (hidden.Count > 0 ? ", " + hidden.Count + " escondidas" : "") + ")";
+                var killer = st.Killer;
+                new Thread(() => ReadScreenWork(capMap, capStat, killer, how)) { IsBackground = true, Name = "leer-pantalla" }.Start();
+            };
+            later.Start();
+        }
+
+        void ReadScreenWork(Bitmap capMap, Bitmap capStat, Entry killer, string how)
+        {
+            string[] mapLines = null; var statLines = new List<string>(); bool noOcr = false;
+            string mapName = null, whyMap = "", whySrc = "", err = null;
+            var srcs = new List<Tuple<Entry, double>>();
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                using (var big = MapReader.Prepare(capMap)) mapLines = WinOcr.Read(big);
+                if (mapLines == null) noOcr = true;
+                else
+                {
+                    mapName = MapReader.Match(cat, mapLines, out whyMap);
+                    string[] a, b;
+                    using (var big = MapReader.Prepare(capStat)) a = WinOcr.Read(big);
+                    using (var con = MapReader.Contrast(capStat)) b = WinOcr.Read(con);
+                    if (a != null) statLines.AddRange(a);
+                    if (b != null) statLines.AddRange(b);
+                    srcs = MapReader.MatchSources(cat, statLines, killer, out whySrc);
+                }
+                try
+                {
+                    Directory.CreateDirectory(Path.Combine(dir, "logs"));
+                    capMap.Save(Path.Combine(dir, "logs", "mapa-ocr.png"));
+                    capStat.Save(Path.Combine(dir, "logs", "estados-ocr.png"));
+                }
+                catch { }
+            }
+            catch (Exception ex) { err = ex.GetType().Name + ": " + ex.Message; }
+            finally { capMap.Dispose(); capStat.Dispose(); }
+            long ms = sw.ElapsedMilliseconds;
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    mapOcrBusy = false;
+                    DebugEvent("leer pantalla (" + ms + " ms)" + how + ": " + (err ?? (noOcr ? "sin OCR en este Windows" :
+                        "mapa [" + string.Join(" | ", mapLines) + "] -> " + whyMap + " · estados [" + string.Join(" | ", statLines) + "] -> " + whySrc)));
+                    if (err != null) return;
+                    if (noOcr)
+                    {
+                        Feedback(L("este Windows no tiene el lector de texto (OCR) para leer la pantalla", "this Windows has no text reader (OCR) to read the screen"), Color.Silver, 4000);
+                        return;
+                    }
+                    var said = new List<string>();
+                    if (mapName != null)
+                    {
+                        if (mapName != mapShown || mapWin == null || !mapWin.Visible) ShowMap(mapName, true);
+                        said.Add(L("mapa: ", "map: ") + mapName);
+                    }
+                    var cur = st.Current();
+                    var add = srcs.Select(t => t.Item1).Where(e => !cur.Contains(e) || st.IsDoubt(e)).ToList();
+                    if (add.Count > 0)
+                    {
+                        // lo dice el juego: va seguro (sin "?"); si estaba como sospecha, queda confirmado
+                        BoxDo(L("pantalla: ", "screen: ") + string.Join(", ", add.Select(e => e.Name)),
+                              () => string.Join(" · ", add.Select(e => st.AddPicked(e, false))), "pantalla");
+                        if (said.Count > 0) Feedback(said[0] + " · " + feedback, Color.FromArgb(150, 220, 150), 5000);
+                        return;
+                    }
+                    if (srcs.Count > 0) said.Add(L("ya anotado: ", "already listed: ") + string.Join(", ", srcs.Select(t => t.Item1.Name)));
+                    if (said.Count > 0) Feedback(string.Join(" · ", said), Color.FromArgb(150, 220, 150), 4000);
+                    else Feedback(L("no vi nombres en pantalla (mapa: abajo a la izq. al empezar · perks: arriba a la der.)", "no names on screen (map: bottom-left at the start · perks: top-right)"), Color.Silver, 3500);
+                }));
+            }
+            catch { mapOcrBusy = false; }
+        }
+
+        bool IsOurVk(int v) { return v != 0 && (v == vkType || v == vkTalk || v == vkClear || v == vkHelp || v == vkNames || v == vkWheel || v == vkUndo || v == vkBuild || (v == vkMapOcr && !IsMouseVk(v)) || (v == 0x1B && wheelOpen)); }
 
         IntPtr WatchProc(int nCode, IntPtr wParam, IntPtr lParam)
         {
@@ -8827,6 +9195,12 @@ Puerto=8765
                 if (u && !undoDown && !(typeBox != null && typeBox.Visible)) UndoLast();
                 undoDown = u;
             }
+            if (vkMapOcr != 0 && !IsMouseVk(vkMapOcr))
+            {
+                bool b = HotKey(vkMapOcr) && (mapOcrDown || ModsMatch(vkMapOcr, mapOcrSh, mapOcrCt, mapOcrAl));
+                if (b && !mapOcrDown && !(typeBox != null && typeBox.Visible)) ReadMapFromScreen(false);
+                mapOcrDown = b;
+            }
             if (vkBuild != 0)
             {
                 bool b = HotKey(vkBuild) && (buildDown || ModsMatch(vkBuild, buildSh, buildCt, buildAl));
@@ -8879,7 +9253,13 @@ Puerto=8765
         }
         void ClearWithUndo()
         {
-            if (!HasAnything()) { Feedback(L("la lista ya está vacía", "the list is already empty"), Color.Silver, 2000); return; }
+            if (!HasAnything())
+            {
+                // solo habia un mapa (por ejemplo, leido de la pantalla): se saca el mapa (para todos en la sala)
+                if (mapShown != null) { HideMap(true); DebugEvent("mapa sacado con borrar (la lista ya estaba vacía)"); Feedback(L("mapa sacado", "map removed"), Color.FromArgb(150, 220, 150), 2500); return; }
+                Feedback(L("la lista ya está vacía", "the list is already empty"), Color.Silver, 2000);
+                return;
+            }
             undoSnap = st.Snapshot();
             undoUntil = Environment.TickCount + 8000;
             DebugEvent("lista borrada con tecla o menú (antes de borrar)");
@@ -9527,6 +9907,37 @@ Puerto=8765
                               "\r\n    EN: " + (a.InfoEn ?? "").Replace("\n", " / ") + "\r\n");
                 if (args.Length >= 4) sb.Append("TOKENS: " + string.Join(" ", Txt.Tokens(args[3])) + "\r\n");
                 File.WriteAllText(args[2], sb.ToString(), Encoding.UTF8);
+                return;
+            }
+            if (args.Length >= 3 && args[0] == "--ocr-mapa")
+            {
+                // --ocr-mapa salida.txt captura1.png [captura2.png ...] : lee el nombre del mapa de capturas de pantalla completas
+                var cat = Catalog.Load(Path.Combine(dir, "datos"));
+                var sb = new StringBuilder();
+                foreach (var f in args.Skip(2))
+                {
+                    var sw = Stopwatch.StartNew();
+                    using (var src = new Bitmap(f))
+                    {
+                        var all = new Rectangle(0, 0, src.Width, src.Height);
+                        using (var crop = src.Clone(MapReader.Region(all), src.PixelFormat))
+                        using (var big = MapReader.Prepare(crop))
+                        {
+                            var lines = WinOcr.Read(big); string why;
+                            var name = MapReader.Match(cat, lines, out why);
+                            sb.Append(Path.GetFileName(f) + " (" + sw.ElapsedMilliseconds + " ms)\r\n  mapa: [" + (lines == null ? "SIN OCR" : string.Join(" | ", lines)) + "] -> " + (name ?? "NADA") + "   (" + why + ")\r\n");
+                        }
+                        using (var crop = src.Clone(MapReader.StatusRegion(all), src.PixelFormat))
+                        using (var big = MapReader.Prepare(crop))
+                        using (var con = MapReader.Contrast(crop))
+                        {
+                            var lines = (WinOcr.Read(big) ?? new string[0]).Concat(WinOcr.Read(con) ?? new string[0]).ToList(); string why;
+                            var found = MapReader.MatchSources(cat, lines, null, out why);
+                            sb.Append("  estados: [" + string.Join(" | ", lines) + "] -> " + why + "\r\n");
+                        }
+                    }
+                }
+                File.WriteAllText(args[1], sb.ToString(), Encoding.UTF8);
                 return;
             }
             if (args.Length >= 3 && args[0] == "--escuchar")

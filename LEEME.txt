@@ -23,6 +23,8 @@ Callouts in the Fog - lo que ve un sobreviviente, lo saben los cuatro
 
 5) En partida:
    - Shift+T: escribir lo que viste (perk, addon, ofrenda, killer o mapa) y elegirlo de la lista.
+   - Clic del medio: lee la pantalla. Al empezar (nombre del mapa abajo a la izquierda) carga el mapa;
+     con un aviso de estado arriba a la derecha ("HEX: NO ONE ESCAPES DEATH") anota ese perk.
    - Mantener Shift+V y hablar (si tenés la voz): "tiene Pain Resonance y Deadlock", "es la Huntress"...
    - Mantener Shift+H: ayuda con todos los comandos.
    - Mantener Shift+G 1 segundo: borrar todo (se borra para todo el grupo).

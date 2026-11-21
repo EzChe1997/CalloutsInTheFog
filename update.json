@@ -1,8 +1,8 @@
 {
-    "version":  45,
-    "notes":  "Arreglado: las imágenes de los mapas no cargaban (hens333.com cambió su web; ahora la app encuentra sola las imágenes nuevas). El cartel de \u0027cargando\u0027 ya no queda encima del mapa.",
-    "date":  "2026-11-18 22:51",
+    "version":  46,
+    "notes":  "Clic del medio: lee la pantalla (nombre del mapa al empezar y perks en los avisos de estado). Borrar con solo un mapa ahora lo saca.",
+    "date":  "2026-11-21 00:14",
     "files":  {
-                  "DbdOverlay.exe":  "efb747dc4c2b1d94632ca08e43d5a5f328a273364886403bf85d53499ab5435a"
+                  "DbdOverlay.exe":  "171f482d3abbcc796c021e051cf8cbb29d4268d37022d017e493e18e2f3c0db3"
               }
 }
